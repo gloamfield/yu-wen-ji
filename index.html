@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4eee9">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="余温机 · 一部会自己继续生活的 AI 小手机">
-  <title>余温机 · Ember Phone</title>
+  <title>余温机</title>
   <style>
 :root {
   --accent: #c87f8a;
@@ -5764,7 +5764,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const dockApps = E.DOCK_APPS.map((id) => E.getApp(id)).filter(Boolean);
     return `
       <div class="home">
-        <div class="home-kicker">EMBER PHONE · ${E.escapeHTML(E.state.settings.userName || "我")}</div>
+        <div class="home-kicker">余温机 · ${E.escapeHTML(E.state.settings.userName || "我")}</div>
         <div class="home-title">${E.homeGreeting()}</div>
         <div class="home-subtitle">${E.fmtDate()} · 今天也有一点余温</div>
         <div class="home-widget ${lifeSummary ? "life-widget" : ""}" ${lifeSummary ? 'data-action="life-recap"' : ""}>
@@ -7941,7 +7941,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
           <div class="card settings-group">
             <div class="settings-row" data-action="about">
               <div class="settings-icon">${E.icon("info", 17)}</div>
-              <div class="grow"><div class="settings-label">余温机 · Ember Phone</div><div class="settings-desc">v${E.VERSION} · MIT License · 免费开源</div></div>
+              <div class="grow"><div class="settings-label">余温机</div><div class="settings-desc">v${E.VERSION} · MIT License · 免费开源</div></div>
               <span class="muted">${E.icon("arrowRight", 16)}</span>
             </div>
             <div class="settings-row" data-action="lock-screen">
@@ -8134,7 +8134,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       title: "关于余温机",
       body: `
         <div style="padding:4px 2px 12px">
-          <div style="font-size:22px;font-weight:750;letter-spacing:-.03em">余温机 · Ember Phone</div>
+          <div style="font-size:22px;font-weight:750;letter-spacing:-.03em">余温机</div>
           <div class="hint" style="margin-top:6px">一部会自己继续生活的 AI 小手机。</div>
           <div class="entry-row" style="margin-top:16px">
             <div class="entry-title">免费开源</div>

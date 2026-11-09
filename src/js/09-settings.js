@@ -167,7 +167,7 @@
           <div class="card settings-group">
             <div class="settings-row" data-action="about">
               <div class="settings-icon">${E.icon("info", 17)}</div>
-              <div class="grow"><div class="settings-label">余温机 · Ember Phone</div><div class="settings-desc">v${E.VERSION} · MIT License · 免费开源</div></div>
+              <div class="grow"><div class="settings-label">余温机</div><div class="settings-desc">v${E.VERSION} · MIT License · 免费开源</div></div>
               <span class="muted">${E.icon("arrowRight", 16)}</span>
             </div>
             <div class="settings-row" data-action="lock-screen">
@@ -360,7 +360,7 @@
       title: "关于余温机",
       body: `
         <div style="padding:4px 2px 12px">
-          <div style="font-size:22px;font-weight:750;letter-spacing:-.03em">余温机 · Ember Phone</div>
+          <div style="font-size:22px;font-weight:750;letter-spacing:-.03em">余温机</div>
           <div class="hint" style="margin-top:6px">一部会自己继续生活的 AI 小手机。</div>
           <div class="entry-row" style="margin-top:16px">
             <div class="entry-title">免费开源</div>

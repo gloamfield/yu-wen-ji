@@ -184,7 +184,7 @@
     const dockApps = E.DOCK_APPS.map((id) => E.getApp(id)).filter(Boolean);
     return `
       <div class="home">
-        <div class="home-kicker">EMBER PHONE · ${E.escapeHTML(E.state.settings.userName || "我")}</div>
+        <div class="home-kicker">余温机 · ${E.escapeHTML(E.state.settings.userName || "我")}</div>
         <div class="home-title">${E.homeGreeting()}</div>
         <div class="home-subtitle">${E.fmtDate()} · 今天也有一点余温</div>
         <div class="home-widget ${lifeSummary ? "life-widget" : ""}" ${lifeSummary ? 'data-action="life-recap"' : ""}>
