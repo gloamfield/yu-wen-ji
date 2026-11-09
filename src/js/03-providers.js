@@ -51,6 +51,55 @@
     return `${b}/v1beta/models/${encodedModel}:generateContent`;
   };
 
+  E.modelsEndpoint = function (base, kind) {
+    const b = String(base || "").replace(/\/+$/, "");
+    if (!b) return "";
+    if (kind === "anthropic") {
+      if (/\/v1\/messages$/i.test(b)) return b.replace(/\/messages$/i, "/models");
+      if (/\/v1$/i.test(b) || /\/models$/i.test(b)) return E.joinUrl(b, "/models");
+      return `${b}/v1/models`;
+    }
+    if (kind === "gemini") {
+      if (/\/v1(?:beta\d*)?\/models$/i.test(b)) return b;
+      if (/\/v1(?:beta\d*)?$/i.test(b)) return E.joinUrl(b, "/models");
+      const modelPath = b.match(/^(.*?)\/v1(?:beta\d*)?\/models\/[^/]+(?::generateContent)?$/i);
+      if (modelPath) return `${modelPath[1]}/v1beta/models`;
+      return `${b}/v1beta/models`;
+    }
+    return E.joinUrl(b, "/models");
+  };
+
+  E.normalizeModelList = function (payload, kind) {
+    const root = payload && typeof payload === "object" ? payload : {};
+    const rows = Array.isArray(payload)
+      ? payload
+      : Array.isArray(root.data)
+        ? root.data
+        : Array.isArray(root.models)
+          ? root.models
+          : Array.isArray(root.items)
+            ? root.items
+            : root.data && Array.isArray(root.data.models)
+              ? root.data.models
+              : [];
+    const models = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const value = row && typeof row === "object" ? row : { id: row };
+      let id = String(value.id || value.name || value.model || value.slug || "").trim();
+      if (!id) continue;
+      if (kind === "gemini") {
+        if (id.startsWith("models/")) id = id.slice("models/".length);
+        const methods = value.supportedGenerationMethods || value.supported_generation_methods;
+        if (Array.isArray(methods) && methods.length && !methods.includes("generateContent")) continue;
+      }
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      models.push(id);
+    }
+    return models.sort((a, b) => a.localeCompare(b, "en"));
+  };
+
   E.httpError = async function (response) {
     let detail = "";
     try {
@@ -90,6 +139,60 @@
       return "接口不允许浏览器跨域访问。请使用支持 CORS 的地址，或通过 SillyTavern / 自建转发访问。";
     }
     return message;
+  };
+
+  E.fetchProviderModels = async function (providerId) {
+    const id = providerId || E.activeProvider();
+    const provider = E.PROVIDERS[id] || E.PROVIDERS.demo;
+    if (provider.kind === "demo") throw new Error("演示模式不需要获取模型");
+    const config = E.getProviderConfig(id);
+    if (!config.baseUrl) throw new Error("还没有填写接口地址");
+    if (provider.needsKey && !config.apiKey) throw new Error("还没有填写 API Key");
+
+    let url = E.modelsEndpoint(config.baseUrl, provider.kind);
+    if (!url) throw new Error("还没有填写接口地址");
+    const headers = { Accept: "application/json" };
+    if (provider.kind === "anthropic") {
+      headers["x-api-key"] = config.apiKey;
+      headers["anthropic-version"] = "2023-06-01";
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+      url += `${url.includes("?") ? "&" : "?"}limit=1000`;
+    } else if (provider.kind === "gemini") {
+      url += `${url.includes("?") ? "&" : "?"}pageSize=1000&key=${encodeURIComponent(config.apiKey)}`;
+    } else if (config.apiKey) {
+      headers.Authorization = `Bearer ${config.apiKey}`;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let response;
+    try {
+      response = await fetch(url, { method: "GET", headers, signal: controller.signal });
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        throw new Error("获取模型列表超时，请检查网络或接口地址");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      if (response.status === 404 || response.status === 405) {
+        throw new Error("这个接口没有提供模型列表，可以直接手动填写模型名");
+      }
+      await E.httpError(response);
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error("模型列表返回的不是 JSON，可能不是兼容接口");
+    }
+    const models = E.normalizeModelList(payload, provider.kind);
+    if (!models.length) throw new Error("接口没有返回可用模型，可以直接手动填写模型名");
+    return models;
   };
 
   function extractOpenAIText(data) {

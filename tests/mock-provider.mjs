@@ -67,6 +67,43 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/models") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      object: "list",
+      data: [
+        { id: "mock-chat" },
+        { id: "mock-reasoner" },
+        { id: "mock-chat" }
+      ]
+    }));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/v1/models") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      data: [
+        { id: "mock-claude" },
+        { id: "mock-claude-haiku" }
+      ],
+      has_more: false
+    }));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/v1beta/models") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      models: [
+        { name: "models/mock-gemini", supportedGenerationMethods: ["generateContent"] },
+        { name: "models/mock-gemini-lite", supportedGenerationMethods: ["generateContent"] },
+        { name: "models/mock-embedding", supportedGenerationMethods: ["embedContent"] }
+      ]
+    }));
+    return;
+  }
+
   if (req.method !== "POST") {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "not found" }));

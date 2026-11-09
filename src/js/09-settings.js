@@ -29,6 +29,18 @@
     const providerOptions = Object.entries(E.PROVIDERS)
       .map(([id, item]) => `<option value="${E.escapeHTML(id)}" ${id === providerId ? "selected" : ""}>${E.escapeHTML(item.label)}</option>`)
       .join("");
+    const models = Array.isArray(config.models) ? config.models : [];
+    const currentModel = String(config.model || "");
+    const modelOptions = [
+      `<option value="">${models.length ? "从接口列表选择" : "尚未获取模型列表"}</option>`,
+      ...models.map((model) => `<option value="${E.escapeHTML(model)}" ${model === currentModel ? "selected" : ""}>${E.escapeHTML(model)}</option>`),
+      `<option value="__custom__" ${currentModel && !models.includes(currentModel) ? "selected" : ""}>手动输入模型名…</option>`
+    ].join("");
+    const modelHint = provider.kind === "demo"
+      ? "演示模式使用本地模板，不需要选择模型。"
+      : models.length
+        ? `已获取 ${models.length} 个模型${config.modelsFetchedAt ? ` · ${E.fmtRelative(config.modelsFetchedAt)}` : ""}。也可以直接在下面修改模型名。`
+        : "填好接口地址和 API Key 后点“获取模型”；接口不支持列表时，可以直接手填模型名。";
     const lifePace = E.state.settings.lifePace || "normal";
     const lifePaceOptions = Object.entries(E.LIFE_PACES)
       .map(([id, item]) => `<option value="${E.escapeHTML(id)}" ${id === lifePace ? "selected" : ""}>${E.escapeHTML(item.label)} · ${E.escapeHTML(item.description)}</option>`)
@@ -130,8 +142,11 @@
               <div class="hint">只保存在本机。不要把 Key 发给别人。</div>
             </div>
             <div class="field">
-              <label>模型名</label>
+              <label>模型</label>
+              ${models.length ? `<select id="settings-model-select" style="margin-bottom:8px">${modelOptions}</select>` : ""}
               <input id="settings-model" value="${E.escapeHTML(config.model || "")}" placeholder="${E.escapeHTML(provider.defaultModel || "模型名")}">
+              ${provider.kind === "demo" ? "" : `<button class="btn ghost" data-action="fetch-models" style="width:100%;margin-top:8px">${E.icon("refresh", 16)} ${models.length ? "刷新模型列表" : "获取模型"}</button>`}
+              <div class="hint">${E.escapeHTML(modelHint)}</div>
             </div>
             <div class="row" style="gap:8px">
               <button class="btn ghost" data-action="test-provider" style="flex:1">${E.icon("shield", 16)} 测试连接</button>
@@ -194,8 +209,14 @@
     const base = document.getElementById("settings-base-url");
     const key = document.getElementById("settings-api-key");
     const model = document.getElementById("settings-model");
+    const previousBaseUrl = config.baseUrl || "";
+    const previousApiKey = config.apiKey || "";
     if (base) config.baseUrl = base.value.trim();
     if (key) config.apiKey = key.value.trim();
+    if (config.baseUrl !== previousBaseUrl || config.apiKey !== previousApiKey) {
+      config.models = [];
+      config.modelsFetchedAt = 0;
+    }
     if (model) config.model = model.value.trim();
     providerConfigs[providerId] = config;
     E.state.settings.providerConfigs = providerConfigs;
@@ -255,6 +276,35 @@
       E.toast(`连接成功：${String(result).slice(0, 80)}`, 3200);
     } catch (error) {
       E.toast(E.humanError(error), 5200);
+    }
+  };
+
+  E.fetchModelsFromFields = async function () {
+    const button = document.querySelector('[data-action="fetch-models"]');
+    const originalHTML = button ? button.innerHTML : "";
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = `${E.icon("refresh", 16)} 获取中…`;
+    }
+    try {
+      await E.saveSettingsFromFields(true);
+      const providerId = E.activeProvider();
+      const models = await E.fetchProviderModels(providerId);
+      const providerConfigs = E.state.settings.providerConfigs || {};
+      const config = Object.assign({}, E.DEFAULT_PROVIDER_CONFIGS[providerId] || {}, providerConfigs[providerId] || {});
+      config.models = models;
+      config.modelsFetchedAt = Date.now();
+      providerConfigs[providerId] = config;
+      E.state.settings.providerConfigs = providerConfigs;
+      await E.saveSettings();
+      E.renderRoute();
+      E.toast(`已获取 ${models.length} 个模型，请选择`, 3200);
+    } catch (error) {
+      E.toast(E.humanError(error), 5200);
+      if (button && button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+      }
     }
   };
 

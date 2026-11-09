@@ -4,7 +4,7 @@
   const E = window.Ember = window.Ember || {};
 
   E.APP_NAME = "余温机";
-  E.VERSION = "0.6.0";
+  E.VERSION = "0.6.1";
   E.STORES = [
     "characters",
     "chats",

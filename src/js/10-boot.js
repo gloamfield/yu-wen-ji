@@ -192,6 +192,9 @@
       case "test-provider":
         await E.testProviderFromFields();
         break;
+      case "fetch-models":
+        await E.fetchModelsFromFields();
+        break;
       case "export-backup":
         await E.exportBackup();
         break;
@@ -262,6 +265,13 @@
         event.target.style.height = "auto";
         event.target.style.height = `${Math.min(110, event.target.scrollHeight)}px`;
       }
+      if (event.target && event.target.id === "settings-model") {
+        const select = document.getElementById("settings-model-select");
+        if (!select) return;
+        const value = event.target.value.trim();
+        const hasOption = Array.from(select.options).some((option) => option.value === value);
+        select.value = value ? (hasOption ? value : "__custom__") : "";
+      }
     });
 
     document.addEventListener("change", async (event) => {
@@ -270,6 +280,16 @@
           await E.changeProvider(event.target.value);
         } catch (error) {
           E.toast(error.message || "切换服务商失败");
+        }
+      }
+      if (event.target && event.target.id === "settings-model-select") {
+        const input = document.getElementById("settings-model");
+        if (!input) return;
+        if (event.target.value === "__custom__") {
+          input.focus();
+          input.select();
+        } else {
+          input.value = event.target.value;
         }
       }
     });

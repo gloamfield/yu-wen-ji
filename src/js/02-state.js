@@ -7,37 +7,51 @@
     demo: {
       baseUrl: "",
       apiKey: "",
-      model: "本地演示"
+      model: "本地演示",
+      models: [],
+      modelsFetchedAt: 0
     },
     openai: {
       baseUrl: "https://api.openai.com/v1",
       apiKey: "",
-      model: "gpt-4o-mini"
+      model: "gpt-4o-mini",
+      models: [],
+      modelsFetchedAt: 0
     },
     deepseek: {
       baseUrl: "https://api.deepseek.com/v1",
       apiKey: "",
-      model: "deepseek-chat"
+      model: "deepseek-chat",
+      models: [],
+      modelsFetchedAt: 0
     },
     anthropic: {
       baseUrl: "https://api.anthropic.com",
       apiKey: "",
-      model: "claude-3-5-sonnet-latest"
+      model: "claude-3-5-sonnet-latest",
+      models: [],
+      modelsFetchedAt: 0
     },
     gemini: {
       baseUrl: "https://generativelanguage.googleapis.com",
       apiKey: "",
-      model: "gemini-2.0-flash"
+      model: "gemini-2.0-flash",
+      models: [],
+      modelsFetchedAt: 0
     },
     sillytavern: {
       baseUrl: "http://localhost:8000/v1",
       apiKey: "",
-      model: ""
+      model: "",
+      models: [],
+      modelsFetchedAt: 0
     },
     custom: {
       baseUrl: "",
       apiKey: "",
-      model: ""
+      model: "",
+      models: [],
+      modelsFetchedAt: 0
     }
   };
 

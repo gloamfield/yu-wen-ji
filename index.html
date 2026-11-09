@@ -2467,7 +2467,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
   const E = window.Ember = window.Ember || {};
 
   E.APP_NAME = "余温机";
-  E.VERSION = "0.6.0";
+  E.VERSION = "0.6.1";
   E.STORES = [
     "characters",
     "chats",
@@ -3387,37 +3387,51 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     demo: {
       baseUrl: "",
       apiKey: "",
-      model: "本地演示"
+      model: "本地演示",
+      models: [],
+      modelsFetchedAt: 0
     },
     openai: {
       baseUrl: "https://api.openai.com/v1",
       apiKey: "",
-      model: "gpt-4o-mini"
+      model: "gpt-4o-mini",
+      models: [],
+      modelsFetchedAt: 0
     },
     deepseek: {
       baseUrl: "https://api.deepseek.com/v1",
       apiKey: "",
-      model: "deepseek-chat"
+      model: "deepseek-chat",
+      models: [],
+      modelsFetchedAt: 0
     },
     anthropic: {
       baseUrl: "https://api.anthropic.com",
       apiKey: "",
-      model: "claude-3-5-sonnet-latest"
+      model: "claude-3-5-sonnet-latest",
+      models: [],
+      modelsFetchedAt: 0
     },
     gemini: {
       baseUrl: "https://generativelanguage.googleapis.com",
       apiKey: "",
-      model: "gemini-2.0-flash"
+      model: "gemini-2.0-flash",
+      models: [],
+      modelsFetchedAt: 0
     },
     sillytavern: {
       baseUrl: "http://localhost:8000/v1",
       apiKey: "",
-      model: ""
+      model: "",
+      models: [],
+      modelsFetchedAt: 0
     },
     custom: {
       baseUrl: "",
       apiKey: "",
-      model: ""
+      model: "",
+      models: [],
+      modelsFetchedAt: 0
     }
   };
 
@@ -4512,6 +4526,55 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     return `${b}/v1beta/models/${encodedModel}:generateContent`;
   };
 
+  E.modelsEndpoint = function (base, kind) {
+    const b = String(base || "").replace(/\/+$/, "");
+    if (!b) return "";
+    if (kind === "anthropic") {
+      if (/\/v1\/messages$/i.test(b)) return b.replace(/\/messages$/i, "/models");
+      if (/\/v1$/i.test(b) || /\/models$/i.test(b)) return E.joinUrl(b, "/models");
+      return `${b}/v1/models`;
+    }
+    if (kind === "gemini") {
+      if (/\/v1(?:beta\d*)?\/models$/i.test(b)) return b;
+      if (/\/v1(?:beta\d*)?$/i.test(b)) return E.joinUrl(b, "/models");
+      const modelPath = b.match(/^(.*?)\/v1(?:beta\d*)?\/models\/[^/]+(?::generateContent)?$/i);
+      if (modelPath) return `${modelPath[1]}/v1beta/models`;
+      return `${b}/v1beta/models`;
+    }
+    return E.joinUrl(b, "/models");
+  };
+
+  E.normalizeModelList = function (payload, kind) {
+    const root = payload && typeof payload === "object" ? payload : {};
+    const rows = Array.isArray(payload)
+      ? payload
+      : Array.isArray(root.data)
+        ? root.data
+        : Array.isArray(root.models)
+          ? root.models
+          : Array.isArray(root.items)
+            ? root.items
+            : root.data && Array.isArray(root.data.models)
+              ? root.data.models
+              : [];
+    const models = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const value = row && typeof row === "object" ? row : { id: row };
+      let id = String(value.id || value.name || value.model || value.slug || "").trim();
+      if (!id) continue;
+      if (kind === "gemini") {
+        if (id.startsWith("models/")) id = id.slice("models/".length);
+        const methods = value.supportedGenerationMethods || value.supported_generation_methods;
+        if (Array.isArray(methods) && methods.length && !methods.includes("generateContent")) continue;
+      }
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      models.push(id);
+    }
+    return models.sort((a, b) => a.localeCompare(b, "en"));
+  };
+
   E.httpError = async function (response) {
     let detail = "";
     try {
@@ -4551,6 +4614,60 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       return "接口不允许浏览器跨域访问。请使用支持 CORS 的地址，或通过 SillyTavern / 自建转发访问。";
     }
     return message;
+  };
+
+  E.fetchProviderModels = async function (providerId) {
+    const id = providerId || E.activeProvider();
+    const provider = E.PROVIDERS[id] || E.PROVIDERS.demo;
+    if (provider.kind === "demo") throw new Error("演示模式不需要获取模型");
+    const config = E.getProviderConfig(id);
+    if (!config.baseUrl) throw new Error("还没有填写接口地址");
+    if (provider.needsKey && !config.apiKey) throw new Error("还没有填写 API Key");
+
+    let url = E.modelsEndpoint(config.baseUrl, provider.kind);
+    if (!url) throw new Error("还没有填写接口地址");
+    const headers = { Accept: "application/json" };
+    if (provider.kind === "anthropic") {
+      headers["x-api-key"] = config.apiKey;
+      headers["anthropic-version"] = "2023-06-01";
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+      url += `${url.includes("?") ? "&" : "?"}limit=1000`;
+    } else if (provider.kind === "gemini") {
+      url += `${url.includes("?") ? "&" : "?"}pageSize=1000&key=${encodeURIComponent(config.apiKey)}`;
+    } else if (config.apiKey) {
+      headers.Authorization = `Bearer ${config.apiKey}`;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let response;
+    try {
+      response = await fetch(url, { method: "GET", headers, signal: controller.signal });
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        throw new Error("获取模型列表超时，请检查网络或接口地址");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      if (response.status === 404 || response.status === 405) {
+        throw new Error("这个接口没有提供模型列表，可以直接手动填写模型名");
+      }
+      await E.httpError(response);
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error("模型列表返回的不是 JSON，可能不是兼容接口");
+    }
+    const models = E.normalizeModelList(payload, provider.kind);
+    if (!models.length) throw new Error("接口没有返回可用模型，可以直接手动填写模型名");
+    return models;
   };
 
   function extractOpenAIText(data) {
@@ -7803,6 +7920,18 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const providerOptions = Object.entries(E.PROVIDERS)
       .map(([id, item]) => `<option value="${E.escapeHTML(id)}" ${id === providerId ? "selected" : ""}>${E.escapeHTML(item.label)}</option>`)
       .join("");
+    const models = Array.isArray(config.models) ? config.models : [];
+    const currentModel = String(config.model || "");
+    const modelOptions = [
+      `<option value="">${models.length ? "从接口列表选择" : "尚未获取模型列表"}</option>`,
+      ...models.map((model) => `<option value="${E.escapeHTML(model)}" ${model === currentModel ? "selected" : ""}>${E.escapeHTML(model)}</option>`),
+      `<option value="__custom__" ${currentModel && !models.includes(currentModel) ? "selected" : ""}>手动输入模型名…</option>`
+    ].join("");
+    const modelHint = provider.kind === "demo"
+      ? "演示模式使用本地模板，不需要选择模型。"
+      : models.length
+        ? `已获取 ${models.length} 个模型${config.modelsFetchedAt ? ` · ${E.fmtRelative(config.modelsFetchedAt)}` : ""}。也可以直接在下面修改模型名。`
+        : "填好接口地址和 API Key 后点“获取模型”；接口不支持列表时，可以直接手填模型名。";
     const lifePace = E.state.settings.lifePace || "normal";
     const lifePaceOptions = Object.entries(E.LIFE_PACES)
       .map(([id, item]) => `<option value="${E.escapeHTML(id)}" ${id === lifePace ? "selected" : ""}>${E.escapeHTML(item.label)} · ${E.escapeHTML(item.description)}</option>`)
@@ -7904,8 +8033,11 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
               <div class="hint">只保存在本机。不要把 Key 发给别人。</div>
             </div>
             <div class="field">
-              <label>模型名</label>
+              <label>模型</label>
+              ${models.length ? `<select id="settings-model-select" style="margin-bottom:8px">${modelOptions}</select>` : ""}
               <input id="settings-model" value="${E.escapeHTML(config.model || "")}" placeholder="${E.escapeHTML(provider.defaultModel || "模型名")}">
+              ${provider.kind === "demo" ? "" : `<button class="btn ghost" data-action="fetch-models" style="width:100%;margin-top:8px">${E.icon("refresh", 16)} ${models.length ? "刷新模型列表" : "获取模型"}</button>`}
+              <div class="hint">${E.escapeHTML(modelHint)}</div>
             </div>
             <div class="row" style="gap:8px">
               <button class="btn ghost" data-action="test-provider" style="flex:1">${E.icon("shield", 16)} 测试连接</button>
@@ -7968,8 +8100,14 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const base = document.getElementById("settings-base-url");
     const key = document.getElementById("settings-api-key");
     const model = document.getElementById("settings-model");
+    const previousBaseUrl = config.baseUrl || "";
+    const previousApiKey = config.apiKey || "";
     if (base) config.baseUrl = base.value.trim();
     if (key) config.apiKey = key.value.trim();
+    if (config.baseUrl !== previousBaseUrl || config.apiKey !== previousApiKey) {
+      config.models = [];
+      config.modelsFetchedAt = 0;
+    }
     if (model) config.model = model.value.trim();
     providerConfigs[providerId] = config;
     E.state.settings.providerConfigs = providerConfigs;
@@ -8029,6 +8167,35 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       E.toast(`连接成功：${String(result).slice(0, 80)}`, 3200);
     } catch (error) {
       E.toast(E.humanError(error), 5200);
+    }
+  };
+
+  E.fetchModelsFromFields = async function () {
+    const button = document.querySelector('[data-action="fetch-models"]');
+    const originalHTML = button ? button.innerHTML : "";
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = `${E.icon("refresh", 16)} 获取中…`;
+    }
+    try {
+      await E.saveSettingsFromFields(true);
+      const providerId = E.activeProvider();
+      const models = await E.fetchProviderModels(providerId);
+      const providerConfigs = E.state.settings.providerConfigs || {};
+      const config = Object.assign({}, E.DEFAULT_PROVIDER_CONFIGS[providerId] || {}, providerConfigs[providerId] || {});
+      config.models = models;
+      config.modelsFetchedAt = Date.now();
+      providerConfigs[providerId] = config;
+      E.state.settings.providerConfigs = providerConfigs;
+      await E.saveSettings();
+      E.renderRoute();
+      E.toast(`已获取 ${models.length} 个模型，请选择`, 3200);
+    } catch (error) {
+      E.toast(E.humanError(error), 5200);
+      if (button && button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+      }
     }
   };
 
@@ -8359,6 +8526,9 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       case "test-provider":
         await E.testProviderFromFields();
         break;
+      case "fetch-models":
+        await E.fetchModelsFromFields();
+        break;
       case "export-backup":
         await E.exportBackup();
         break;
@@ -8429,6 +8599,13 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         event.target.style.height = "auto";
         event.target.style.height = `${Math.min(110, event.target.scrollHeight)}px`;
       }
+      if (event.target && event.target.id === "settings-model") {
+        const select = document.getElementById("settings-model-select");
+        if (!select) return;
+        const value = event.target.value.trim();
+        const hasOption = Array.from(select.options).some((option) => option.value === value);
+        select.value = value ? (hasOption ? value : "__custom__") : "";
+      }
     });
 
     document.addEventListener("change", async (event) => {
@@ -8437,6 +8614,16 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
           await E.changeProvider(event.target.value);
         } catch (error) {
           E.toast(error.message || "切换服务商失败");
+        }
+      }
+      if (event.target && event.target.id === "settings-model-select") {
+        const input = document.getElementById("settings-model");
+        if (!input) return;
+        if (event.target.value === "__custom__") {
+          input.focus();
+          input.select();
+        } else {
+          input.value = event.target.value;
         }
       }
     });
