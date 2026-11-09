@@ -985,6 +985,75 @@ body[data-theme="dark"] .home {
   justify-content: center;
 }
 
+.character-state-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 13px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+}
+
+.character-state-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 12%, transparent);
+}
+
+.character-state-dot.available {
+  background: #6aa88a;
+  box-shadow: 0 0 0 4px rgba(106, 168, 138, .14);
+}
+
+.character-state-dot.busy {
+  background: #c49a4a;
+  box-shadow: 0 0 0 4px rgba(196, 154, 74, .14);
+}
+
+.character-state-dot.sleeping {
+  background: #8b7f9a;
+  box-shadow: 0 0 0 4px rgba(139, 127, 154, .14);
+}
+
+.character-state-title {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.character-state-sub {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.character-state-side {
+  flex: none;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.text-btn {
+  border: 0;
+  padding: 0;
+  margin-top: 2px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .tabs {
   display: flex;
   gap: 4px;
@@ -1055,6 +1124,45 @@ body[data-theme="dark"] .home {
   justify-content: flex-end;
   gap: 4px;
   margin-top: 8px;
+}
+
+.proactive-debug-intro {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.proactive-debug-card {
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+}
+
+.proactive-debug-name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.proactive-debug-grid {
+  display: grid;
+  grid-template-columns: 66px 1fr;
+  gap: 7px 10px;
+  margin-top: 10px;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.proactive-debug-grid span {
+  color: var(--muted);
+}
+
+.proactive-debug-grid b {
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-word;
 }
 
 /* ---------- chat ---------- */
@@ -2467,7 +2575,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
   const E = window.Ember = window.Ember || {};
 
   E.APP_NAME = "余温机";
-  E.VERSION = "0.6.1";
+  E.VERSION = "0.8.0";
   E.STORES = [
     "characters",
     "chats",
@@ -2930,6 +3038,9 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
 
   E.normalizeCharacter = function (character) {
     const c = character || {};
+    const proactiveMode = ["inherit", "off", "quiet", "normal", "lively"].includes(c.proactiveMode)
+      ? c.proactiveMode
+      : "inherit";
     return {
       id: c.id || E.uid("char"),
       name: String(c.name || "未命名角色"),
@@ -2941,6 +3052,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       avatar: String(c.avatar || ""),
       tags: Array.isArray(c.tags) ? c.tags : [],
       worldbook: Array.isArray(c.worldbook) ? c.worldbook : [],
+      proactiveMode,
       createdAt: Number(c.createdAt) || Date.now()
     };
   };
@@ -2950,6 +3062,11 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const createdAt = Number(m.createdAt) || Date.now();
     const source = ["auto", "manual", "seed"].includes(m.source) ? m.source : "manual";
     const content = String(m.content || "").trim();
+    const characterId = String(m.characterId || fallbackCharacterId || "");
+    const scope = ["private", "group", "public"].includes(m.scope) ? m.scope : "private";
+    const knownBy = Array.isArray(m.knownBy)
+      ? Array.from(new Set(m.knownBy.map(String).filter(Boolean)))
+      : (characterId ? [characterId] : []);
     const layer = typeof E.normalizeMemoryLayer === "function"
       ? E.normalizeMemoryLayer(m.layer || m.memoryLayer, content)
       : "fact";
@@ -2958,15 +3075,20 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       : [];
     return {
       id: m.id || E.uid("mem"),
-      characterId: String(m.characterId || fallbackCharacterId || ""),
+      characterId,
       content,
       importance: E.clamp(Number(m.importance) || 3, 1, 5),
       pinned: !!m.pinned,
       source,
+      scope,
+      knownBy,
       layer,
       tags,
       sourceChatId: String(m.sourceChatId || ""),
       sourceMessageIds: Array.isArray(m.sourceMessageIds) ? m.sourceMessageIds.map(String) : [],
+      sourceEventId: String(m.sourceEventId || ""),
+      confidence: E.clamp(Number(m.confidence) || 0.8, 0, 1),
+      lastConfirmedAt: Number(m.lastConfirmedAt) || 0,
       lastUsedAt: Number(m.lastUsedAt) || 0,
       useCount: Number(m.useCount) || 0,
       createdAt,
@@ -3450,6 +3572,9 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     notifications: true,
     lifeEngine: true,
     lifePace: "normal",
+    proactiveEnabled: true,
+    proactivePace: "normal",
+    proactiveUseModel: false,
     dndEnabled: false,
     dndStart: "23:00",
     dndEnd: "08:00",
@@ -4031,6 +4156,56 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       .replaceAll("{relation}", character.relationship || "熟悉");
   }
 
+  function normalizeProactiveIntent(raw) {
+    const item = raw && typeof raw === "object" ? raw : {};
+    const dueAt = Number(item.dueAt) || Date.now();
+    const status = ["pending", "sending", "sent", "skipped", "expired"].includes(item.status)
+      ? item.status
+      : "pending";
+    return {
+      id: String(item.id || E.uid("intent")),
+      characterId: String(item.characterId || ""),
+      dueAt,
+      reason: ["silence", "memory", "promise", "event", "care"].includes(item.reason)
+        ? item.reason
+        : "silence",
+      urgency: E.clamp(Number(item.urgency) || 0.45, 0, 1),
+      expiresAt: Number(item.expiresAt) || dueAt + 2 * HOUR,
+      channel: ["chat", "notification", "call", "moment"].includes(item.channel)
+        ? item.channel
+        : "chat",
+      status,
+      sourceEventId: String(item.sourceEventId || ""),
+      createdAt: Number(item.createdAt) || Date.now(),
+      sentAt: Number(item.sentAt) || 0,
+      lastEvaluatedAt: Number(item.lastEvaluatedAt) || 0,
+      suppressedBy: String(item.suppressedBy || ""),
+      nextEligibleAt: Number(item.nextEligibleAt) || 0,
+      score: Number(item.score) || 0
+    };
+  }
+
+  function normalizeProactiveState(raw) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const result = {};
+    for (const [characterId, item] of Object.entries(source)) {
+      if (!characterId || !item || typeof item !== "object") continue;
+      result[characterId] = {
+        dayKey: String(item.dayKey || ""),
+        count: Math.max(0, Number(item.count) || 0),
+        lastSentAt: Math.max(0, Number(item.lastSentAt) || 0),
+        lastReason: String(item.lastReason || ""),
+        lastSuppressedBy: String(item.lastSuppressedBy || ""),
+        lastEvaluatedAt: Math.max(0, Number(item.lastEvaluatedAt) || 0),
+        nextEligibleAt: Math.max(0, Number(item.nextEligibleAt) || 0)
+      };
+    }
+    return result;
+  }
+
+  E.normalizeProactiveIntent = normalizeProactiveIntent;
+  E.normalizeProactiveState = normalizeProactiveState;
+
   E.normalizeLifeState = function (raw) {
     const source = raw && typeof raw === "object" ? raw : {};
     const batch = Array.isArray(source.batch)
@@ -4060,12 +4235,21 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       todayCount: Math.max(0, Number(source.todayCount) || 0),
       lastSettledAt: Math.max(0, Number(source.lastSettledAt) || 0),
       batch,
-      recentKeys: Array.isArray(source.recentKeys) ? source.recentKeys.map(String).slice(-80) : []
+      recentKeys: Array.isArray(source.recentKeys) ? source.recentKeys.map(String).slice(-80) : [],
+      intents: Array.isArray(source.intents)
+        ? source.intents
+          .map(normalizeProactiveIntent)
+          .filter((intent) => intent.characterId)
+          .slice(-24)
+        : [],
+      proactive: normalizeProactiveState(source.proactive)
     };
   };
 
   E.saveLifeState = async function () {
-    E.state.life = E.normalizeLifeState(E.state.life);
+    if (!E.state.life || typeof E.state.life !== "object") {
+      E.state.life = E.normalizeLifeState(null);
+    }
     await E.db.setMeta("lifeState", E.state.life);
   };
 
@@ -4092,11 +4276,19 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       return `${Math.max(1, Math.round(value / DAY))} 天`;
     },
 
-    chooseType(character, timestamp, seed, quiet) {
+    chooseType(character, timestamp, seed, quiet, state) {
       const hour = new Date(timestamp).getHours();
       const roll = hashString(`${seed}:${character.id}:${hour}`) % 100;
       if (quiet) {
         return roll < 60 ? "diary" : "moment";
+      }
+      if (state && state.availability === "sleeping") {
+        return roll < 72 ? "diary" : "moment";
+      }
+      if (state && state.interruptibility === "low") {
+        if (roll < 66) return "diary";
+        if (roll < 92) return "moment";
+        return "message";
       }
       if (hour >= 23 || hour < 6) {
         return roll < 62 ? "diary" : "moment";
@@ -4122,7 +4314,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       return "diary";
     },
 
-    buildEvent(type, character, timestamp, seed, chats) {
+    buildEvent(type, character, timestamp, seed, chats, state) {
       const base = {
         id: `life_${hashString(seed).toString(36)}`,
         key: `${type}:${character.id}:${hourKey(timestamp)}`,
@@ -4140,27 +4332,35 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       if (type === "moment") {
         base.text = renderLine(pick(MOMENT_LINES, seed), character);
         base.route = "#/moments";
-        base.reason = new Date(timestamp).getHours() >= 23 || new Date(timestamp).getHours() < 6
-          ? "夜里没有睡，忽然想发点什么"
-          : "路过一个熟悉的场景";
+        base.reason = state
+          ? `${state.activity}的时候，忽然想发点什么`
+          : new Date(timestamp).getHours() >= 23 || new Date(timestamp).getHours() < 6
+            ? "夜里没有睡，忽然想发点什么"
+            : "路过一个熟悉的场景";
       } else if (type === "diary") {
         const diary = pick(DIARY_LINES, seed);
         base.title = diary.title;
         base.text = diary.content;
         base.mood = diary.mood;
         base.route = "#/diary";
-        base.reason = new Date(timestamp).getHours() >= 23 || new Date(timestamp).getHours() < 6
-          ? "夜深了，想把没说完的话收起来"
-          : "今天有一件小事值得记下来";
+        base.reason = state
+          ? `${state.activity}之后，想把今天收起来`
+          : new Date(timestamp).getHours() >= 23 || new Date(timestamp).getHours() < 6
+            ? "夜深了，想把没说完的话收起来"
+            : "今天有一件小事值得记下来";
       } else if (type === "call") {
         base.text = pick(CALL_LINES, seed);
         base.route = "#/calls";
-        base.reason = "有话想说，拨出去又挂了";
+        base.reason = state
+          ? `忙完${state.activity}，想听听你的声音`
+          : "有话想说，拨出去又挂了";
       } else {
         base.text = pick(MESSAGE_LINES, seed);
         const chat = (chats || []).find((item) => item.type === "direct" && item.characterIds && item.characterIds[0] === character.id);
         base.route = chat ? `#/chat/${chat.id}` : "#/chat";
-        base.reason = "突然想起你";
+        base.reason = state
+          ? `${state.activity}的间隙，忽然想起你`
+          : "突然想起你";
       }
       return base;
     },
@@ -4201,8 +4401,11 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         const character = characters[hashString(seed) % characters.length];
         const eventTime = now - span + Math.round((span * (slot + 1)) / (wanted + 1));
         const quiet = E.lifeEngine.inDndWindow(eventTime, opts.dnd);
-        const type = E.lifeEngine.chooseType(character, eventTime, seed, quiet);
-        const event = E.lifeEngine.buildEvent(type, character, eventTime, seed, opts.chats || []);
+        const state = typeof E.characterStateFor === "function"
+          ? E.characterStateFor(character, eventTime)
+          : null;
+        const type = E.lifeEngine.chooseType(character, eventTime, seed, quiet, state);
+        const event = E.lifeEngine.buildEvent(type, character, eventTime, seed, opts.chats || [], state);
         if (existing.has(event.key)) continue;
         event.silent = quiet;
         event.reason = quiet
@@ -4468,6 +4671,831 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
   E.openLifeEvent = function (route) {
     E.closeSheet();
     if (route) E.navigate(route);
+  };
+})();
+
+
+/* ===== 02c-life-state.js ===== */
+(function () {
+  "use strict";
+
+  const E = window.Ember;
+
+  const AVAILABILITY_LABELS = {
+    available: "方便",
+    busy: "在忙",
+    sleeping: "睡了"
+  };
+
+  const INTERRUPTIBILITY_LABELS = {
+    low: "低",
+    medium: "中",
+    high: "高"
+  };
+
+  const PROACTIVE_MODE_LABELS = {
+    inherit: "跟随全局",
+    off: "关闭",
+    quiet: "安静",
+    normal: "正常",
+    lively: "热闹"
+  };
+
+  E.LIFE_BLOCK_SETS = {
+    default: [
+      { start: "00:00", end: "07:00", activity: "睡觉", location: "家", mood: "困", availability: "sleeping", interruptibility: "low", replyStyle: "不会回", energy: 18 },
+      { start: "07:00", end: "08:30", activity: "起床、洗漱", location: "家", mood: "还没醒", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 38 },
+      { start: "08:30", end: "09:30", activity: "通勤", location: "路上", mood: "放空", availability: "busy", interruptibility: "low", replyStyle: "可能晚点回", energy: 48 },
+      { start: "09:30", end: "12:00", activity: "上班", location: "公司", mood: "专注", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 55 },
+      { start: "12:00", end: "13:00", activity: "午休", location: "公司附近", mood: "松一点", availability: "available", interruptibility: "medium", replyStyle: "正常", energy: 62 },
+      { start: "13:00", end: "18:00", activity: "上班", location: "公司", mood: "有点累", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 45 },
+      { start: "18:00", end: "19:30", activity: "下班、吃饭", location: "路上", mood: "松下来", availability: "available", interruptibility: "medium", replyStyle: "正常", energy: 55 },
+      { start: "19:30", end: "23:00", activity: "自由时间", location: "家", mood: "安静", availability: "available", interruptibility: "high", replyStyle: "可以多聊", energy: 64 },
+      { start: "23:00", end: "24:00", activity: "洗漱、准备睡", location: "家", mood: "困", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 32 }
+    ],
+    bookstore: [
+      { start: "00:00", end: "08:00", activity: "睡觉", location: "家", mood: "困", availability: "sleeping", interruptibility: "low", replyStyle: "不会回", energy: 18 },
+      { start: "08:00", end: "09:30", activity: "起床、去书店", location: "路上", mood: "还没醒", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 38 },
+      { start: "09:30", end: "18:00", activity: "在书店看店", location: "留白书店", mood: "安静", availability: "busy", interruptibility: "low", replyStyle: "回得慢", energy: 52 },
+      { start: "18:00", end: "19:00", activity: "收店、整理书架", location: "留白书店", mood: "有点累", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 42 },
+      { start: "19:00", end: "20:00", activity: "吃晚饭", location: "旧街", mood: "松下来", availability: "available", interruptibility: "medium", replyStyle: "正常", energy: 56 },
+      { start: "20:00", end: "23:00", activity: "自由时间", location: "家", mood: "安静", availability: "available", interruptibility: "high", replyStyle: "可以多聊", energy: 64 },
+      { start: "23:00", end: "24:00", activity: "洗漱、准备睡", location: "家", mood: "困", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 32 }
+    ],
+    office: [
+      { start: "00:00", end: "07:30", activity: "睡觉", location: "家", mood: "困", availability: "sleeping", interruptibility: "low", replyStyle: "不会回", energy: 18 },
+      { start: "07:30", end: "09:00", activity: "通勤", location: "路上", mood: "还没醒", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 40 },
+      { start: "09:00", end: "12:30", activity: "改图", location: "事务所", mood: "专注", availability: "busy", interruptibility: "low", replyStyle: "回得慢", energy: 54 },
+      { start: "12:30", end: "13:30", activity: "吃午饭", location: "事务所附近", mood: "松一点", availability: "available", interruptibility: "medium", replyStyle: "正常", energy: 62 },
+      { start: "13:30", end: "19:30", activity: "改图、开会", location: "事务所", mood: "有点累", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 42 },
+      { start: "19:30", end: "21:00", activity: "下班、吃晚饭", location: "路上", mood: "松下来", availability: "available", interruptibility: "medium", replyStyle: "正常", energy: 55 },
+      { start: "21:00", end: "23:30", activity: "自由时间", location: "家", mood: "安静", availability: "available", interruptibility: "high", replyStyle: "可以多聊", energy: 62 },
+      { start: "23:30", end: "24:00", activity: "洗漱、准备睡", location: "家", mood: "困", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 30 }
+    ],
+    music: [
+      { start: "00:00", end: "09:00", activity: "睡觉", location: "家", mood: "困", availability: "sleeping", interruptibility: "low", replyStyle: "不会回", energy: 18 },
+      { start: "09:00", end: "10:00", activity: "起床、听歌", location: "家", mood: "慢慢醒", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 40 },
+      { start: "10:00", end: "19:00", activity: "编辑歌单、写稿", location: "音乐平台", mood: "专注", availability: "busy", interruptibility: "low", replyStyle: "回得慢", energy: 52 },
+      { start: "19:00", end: "20:00", activity: "吃晚饭", location: "公司附近", mood: "松下来", availability: "available", interruptibility: "medium", replyStyle: "正常", energy: 58 },
+      { start: "20:00", end: "23:30", activity: "自由时间", location: "家或 livehouse", mood: "精神", availability: "available", interruptibility: "high", replyStyle: "可以多聊", energy: 68 },
+      { start: "23:30", end: "24:00", activity: "洗漱、准备睡", location: "家", mood: "困", availability: "busy", interruptibility: "low", replyStyle: "短句", energy: 32 }
+    ]
+  };
+
+  function clockMinutes(value) {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour === 24 && minute === 0) return 24 * 60;
+    if (hour > 23 || minute > 59) return null;
+    return hour * 60 + minute;
+  }
+
+  function scheduleType(character) {
+    const text = `${character && character.scheduleType ? character.scheduleType : ""} ${
+      character && Array.isArray(character.tags) ? character.tags.join(" ") : ""
+    } ${character && character.persona ? character.persona : ""} ${
+      character && character.relationship ? character.relationship : ""
+    }`;
+    if (/书店|图书|阅读|留白/.test(text)) return "bookstore";
+    if (/建筑|设计|改图|事务所|工程/.test(text)) return "office";
+    if (/音乐|歌单|乐队|livehouse|编辑/.test(text)) return "music";
+    return "default";
+  }
+
+  function blockAt(schedule, timestamp) {
+    const date = new Date(timestamp);
+    const current = date.getHours() * 60 + date.getMinutes();
+    for (let index = 0; index < schedule.length; index += 1) {
+      const block = schedule[index];
+      const start = clockMinutes(block.start);
+      const end = clockMinutes(block.end);
+      if (start === null || end === null) continue;
+      if (end > start) {
+        if (current >= start && current < end) return { block, index };
+      } else if (current >= start || current < end) {
+        return { block, index };
+      }
+    }
+    return { block: schedule[0], index: 0 };
+  }
+
+  function blockStartAt(schedule, index, timestamp) {
+    const block = schedule[index % schedule.length];
+    const start = clockMinutes(block.start);
+    if (start === null) return 0;
+    const date = new Date(timestamp);
+    const target = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+    target.setMinutes(start);
+    if (target.getTime() <= timestamp) target.setDate(target.getDate() + 1);
+    return target.getTime();
+  }
+
+  function nextBlockInfo(schedule, currentIndex, timestamp) {
+    const index = (currentIndex + 1) % schedule.length;
+    const block = schedule[index];
+    return {
+      block,
+      index,
+      at: blockStartAt(schedule, index, timestamp)
+    };
+  }
+
+  function nextAvailableInfo(schedule, currentIndex, timestamp) {
+    for (let offset = 1; offset <= schedule.length; offset += 1) {
+      const index = (currentIndex + offset) % schedule.length;
+      const block = schedule[index];
+      if (block.availability !== "sleeping" && block.interruptibility !== "low") {
+        return {
+          block,
+          index,
+          at: blockStartAt(schedule, index, timestamp)
+        };
+      }
+    }
+    return nextBlockInfo(schedule, currentIndex, timestamp);
+  }
+
+  function statusLine(block) {
+    if (!block) return "状态未知";
+    if (block.availability === "sleeping") return "已经睡了 · 明天再回";
+    if (block.availability === "busy") return `${block.activity} · 回得慢`;
+    return `${block.activity} · 现在方便回`;
+  }
+
+  function shortLine(block) {
+    if (!block) return "";
+    if (block.availability === "sleeping") return "睡了";
+    if (block.availability === "busy") return `${block.activity} · 在忙`;
+    return `${block.activity} · 方便`;
+  }
+
+  E.scheduleTypeForCharacter = scheduleType;
+  E.proactiveModeLabel = function (mode) {
+    return PROACTIVE_MODE_LABELS[mode] || PROACTIVE_MODE_LABELS.inherit;
+  };
+
+  E.lifeBlockSetFor = function (character) {
+    const type = scheduleType(character || {});
+    return E.LIFE_BLOCK_SETS[type] || E.LIFE_BLOCK_SETS.default;
+  };
+
+  E.characterStateFor = function (character, at) {
+    if (!character) return null;
+    const now = Number(at) || Date.now();
+    const schedule = E.lifeBlockSetFor(character);
+    const current = blockAt(schedule, now);
+    const next = nextBlockInfo(schedule, current.index, now);
+    const nextAvailable = nextAvailableInfo(schedule, current.index, now);
+    const block = current.block;
+    return {
+      characterId: character.id || "",
+      scheduleType: scheduleType(character),
+      block,
+      blockIndex: current.index,
+      activity: block.activity,
+      location: block.location,
+      mood: block.mood,
+      energy: Number(block.energy) || 0,
+      availability: block.availability,
+      interruptibility: block.interruptibility,
+      replyStyle: block.replyStyle,
+      availabilityLabel: AVAILABILITY_LABELS[block.availability] || "未知",
+      interruptibilityLabel: INTERRUPTIBILITY_LABELS[block.interruptibility] || "未知",
+      statusLine: statusLine(block),
+      shortLine: shortLine(block),
+      isSleeping: block.availability === "sleeping",
+      canInterrupt: block.availability !== "sleeping" && block.interruptibility !== "low",
+      nextBlock: next.block,
+      nextBlockAt: next.at,
+      nextAvailableBlock: nextAvailable.block,
+      nextAvailableAt: nextAvailable.at,
+      updatedAt: now
+    };
+  };
+
+  E.characterStatusLine = function (character, at) {
+    const state = E.characterStateFor(character, at);
+    return state ? state.statusLine : "";
+  };
+
+  E.characterStatusShort = function (character, at) {
+    const state = E.characterStateFor(character, at);
+    return state ? state.shortLine : "";
+  };
+})();
+
+
+/* ===== 02d-proactive.js ===== */
+(function () {
+  "use strict";
+
+  const E = window.Ember;
+  const MINUTE = 60 * 1000;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+
+  E.PROACTIVE_PACES = {
+    quiet: {
+      label: "安静",
+      description: "大约 4–8 小时一次，每天最多 1 次",
+      minGapMs: 4 * HOUR,
+      maxGapMs: 8 * HOUR,
+      dailyCap: 1
+    },
+    normal: {
+      label: "正常",
+      description: "大约 1.5–3 小时一次，每天最多 3 次",
+      minGapMs: 90 * MINUTE,
+      maxGapMs: 3 * HOUR,
+      dailyCap: 3
+    },
+    lively: {
+      label: "热闹",
+      description: "大约 30–90 分钟一次，每天最多 5 次",
+      minGapMs: 30 * MINUTE,
+      maxGapMs: 90 * MINUTE,
+      dailyCap: 5
+    }
+  };
+
+  const REASON_LABELS = {
+    silence: "安静了一阵",
+    memory: "想起了你说过的事",
+    promise: "记着之前的约定",
+    event: "刚发生了一件小事",
+    care: "想知道你今天怎么样"
+  };
+
+  const SUPPRESS_LABELS = {
+    "not-due": "还没到时间",
+    "quiet-hours": "勿扰时段",
+    "low-interruptibility": "她现在不方便被打扰",
+    "recent-user": "你刚说过话",
+    cooldown: "距离上次主动还不够久",
+    "daily-cap": "今天主动次数已经用完",
+    disabled: "主动消息已关闭",
+    expired: "这条意图已经过期",
+    "missing-character": "角色不存在",
+    "sending": "正在发送"
+  };
+
+  let lastLifeRef = null;
+  let activeTick = null;
+
+  function dayKey(timestamp) {
+    const date = new Date(timestamp);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  function hashString(value) {
+    let hash = 2166136261;
+    const text = String(value || "");
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function pick(list, seed) {
+    if (!Array.isArray(list) || !list.length) return "";
+    return list[hashString(seed) % list.length];
+  }
+
+  function lifeState() {
+    if (lastLifeRef !== E.state.life) {
+      E.state.life = E.normalizeLifeState(E.state.life);
+      lastLifeRef = E.state.life;
+    }
+    return E.state.life;
+  }
+
+  function modeFor(character) {
+    return character && character.proactiveMode ? character.proactiveMode : "inherit";
+  }
+
+  function paceFor(character) {
+    const mode = modeFor(character);
+    if (mode === "off") return null;
+    const paceId = mode === "inherit" ? (E.state.settings.proactivePace || "normal") : mode;
+    return E.PROACTIVE_PACES[paceId] || E.PROACTIVE_PACES.normal;
+  }
+
+  function enabled(character) {
+    return !!character
+      && E.state.settings.proactiveEnabled !== false
+      && modeFor(character) !== "off";
+  }
+
+  function proactiveRecord(characterId, now) {
+    const life = lifeState();
+    const key = dayKey(now);
+    let record = life.proactive[characterId];
+    if (!record) {
+      record = {
+        dayKey: key,
+        count: 0,
+        lastSentAt: 0,
+        lastReason: "",
+        lastSuppressedBy: "",
+        lastEvaluatedAt: 0,
+        nextEligibleAt: 0
+      };
+    }
+    if (record.dayKey !== key) {
+      record.dayKey = key;
+      record.count = 0;
+    }
+    life.proactive[characterId] = record;
+    return record;
+  }
+
+  function directChatFor(characterId) {
+    return E.state.chats.find((chat) => chat.type === "direct"
+      && Array.isArray(chat.characterIds)
+      && chat.characterIds[0] === characterId) || null;
+  }
+
+  function lastUserMessageAt(characterId) {
+    const chat = directChatFor(characterId);
+    if (!chat) return 0;
+    const messages = E.state.messages.filter((message) => message.chatId === chat.id && message.role === "user");
+    return messages.reduce((latest, message) => Math.max(latest, Number(message.createdAt) || 0), 0);
+  }
+
+  function lastLifeEvent(characterId) {
+    const life = lifeState();
+    return (life.batch || [])
+      .filter((event) => event.characterId === characterId)
+      .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0] || null;
+  }
+
+  function hasPromiseMemory(characterId) {
+    return E.state.memories.some((memory) => memory.characterId === characterId
+      && memory.layer === "relationship"
+      && /约定|答应|承诺|说好|下次|以后/.test(memory.content || ""));
+  }
+
+  function chooseReason(character, now) {
+    const event = lastLifeEvent(character.id);
+    if (event && now - Number(event.createdAt) < 6 * HOUR) return "event";
+    if (hasPromiseMemory(character.id)) return "promise";
+    const lastUser = lastUserMessageAt(character.id);
+    if (lastUser && now - lastUser > 6 * HOUR) return "silence";
+    return "care";
+  }
+
+  function pendingIntentFor(characterId) {
+    const life = lifeState();
+    return life.intents.find((intent) => intent.characterId === characterId
+      && ["pending", "sending"].includes(intent.status)) || null;
+  }
+
+  function tomorrowStart(timestamp) {
+    const date = new Date(timestamp);
+    const target = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 5, 0, 0);
+    return target.getTime();
+  }
+
+  function clockMinutes(value) {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour > 23 || minute > 59) return null;
+    return hour * 60 + minute;
+  }
+
+  function dndEndAt(timestamp) {
+    const settings = E.state.settings;
+    const dnd = { enabled: !!settings.dndEnabled, start: settings.dndStart, end: settings.dndEnd };
+    if (!E.lifeEngine.inDndWindow(timestamp, dnd)) return 0;
+    const start = clockMinutes(dnd.start);
+    const end = clockMinutes(dnd.end);
+    if (start === null || end === null || start === end) return 0;
+    const date = new Date(timestamp);
+    const current = date.getHours() * 60 + date.getMinutes();
+    const target = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+    target.setMinutes(end);
+    if (start < end) {
+      if (current >= start && current < end) return target.getTime();
+    } else if (current >= start) {
+      target.setDate(target.getDate() + 1);
+      return target.getTime();
+    } else if (current < end) {
+      return target.getTime();
+    }
+    return 0;
+  }
+
+  function ensureIntent(character, now) {
+    if (!enabled(character)) return null;
+    const existing = pendingIntentFor(character.id);
+    if (existing) return existing;
+    const life = lifeState();
+    const pace = paceFor(character);
+    if (!pace) return null;
+    const record = proactiveRecord(character.id, now);
+    const state = E.characterStateFor(character, now);
+    const reason = chooseReason(character, now);
+    const randomGap = pace.minGapMs + Math.floor(Math.random() * Math.max(1, pace.maxGapMs - pace.minGapMs));
+    const dueAt = Math.max(
+      now + 5 * MINUTE,
+      record.lastSentAt ? record.lastSentAt + pace.minGapMs : 0,
+      state && !state.canInterrupt && state.nextAvailableAt ? state.nextAvailableAt : 0,
+      now + randomGap
+    );
+    const intent = E.normalizeProactiveIntent({
+      id: E.uid("intent"),
+      characterId: character.id,
+      dueAt,
+      reason,
+      urgency: E.clamp(0.35 + (reason === "promise" ? 0.25 : reason === "event" ? 0.15 : 0), 0, 1),
+      expiresAt: dueAt + 2 * HOUR,
+      channel: "chat",
+      status: "pending",
+      sourceEventId: lastLifeEvent(character.id) ? lastLifeEvent(character.id).id : "",
+      createdAt: now
+    });
+    life.intents = (life.intents || []).concat(intent).slice(-24);
+    return intent;
+  }
+
+  function scoreIntent(intent, state, record, now) {
+    const lastUser = lastUserMessageAt(intent.characterId);
+    const silenceMs = lastUser ? now - lastUser : now - (Number(intent.createdAt) || now);
+    const silencePressure = E.clamp(silenceMs / (6 * HOUR), 0, 1) * 0.25;
+    const timeFit = state && state.canInterrupt ? 0.22 : -0.25;
+    const urgency = Number(intent.urgency) || 0.35;
+    const recentPenalty = lastUser && now - lastUser < 45 * MINUTE ? 0.18 : 0;
+    const capPenalty = record ? (record.count / 5) * 0.12 : 0;
+    return E.clamp(0.38 + urgency * 0.3 + silencePressure + timeFit - recentPenalty - capPenalty, 0, 1);
+  }
+
+  function evaluateIntent(intent, now) {
+    if (!intent) return { allowed: false, suppressedBy: "expired", nextEligibleAt: 0, score: 0 };
+    if (!["pending", "sending"].includes(intent.status)) {
+      return { allowed: false, suppressedBy: intent.status, nextEligibleAt: 0, score: 0 };
+    }
+    const character = E.getCharacter(intent.characterId);
+    if (!character) return { allowed: false, suppressedBy: "missing-character", nextEligibleAt: 0, score: 0 };
+    if (!enabled(character)) return { allowed: false, suppressedBy: "disabled", nextEligibleAt: 0, score: 0 };
+    if (Number(intent.dueAt) > now) {
+      return { allowed: false, suppressedBy: "not-due", nextEligibleAt: Number(intent.dueAt), score: 0 };
+    }
+    if (Number(intent.expiresAt) && Number(intent.expiresAt) <= now) {
+      return { allowed: false, suppressedBy: "expired", nextEligibleAt: 0, score: 0 };
+    }
+    const dndEnd = dndEndAt(now);
+    if (dndEnd) return { allowed: false, suppressedBy: "quiet-hours", nextEligibleAt: dndEnd, score: 0 };
+
+    const state = E.characterStateFor(character, now);
+    if (!state || !state.canInterrupt) {
+      return {
+        allowed: false,
+        suppressedBy: "low-interruptibility",
+        nextEligibleAt: state ? state.nextAvailableAt : now + 30 * MINUTE,
+        score: 0,
+        state
+      };
+    }
+
+    const lastUser = lastUserMessageAt(character.id);
+    if (lastUser && now - lastUser < 20 * MINUTE) {
+      return {
+        allowed: false,
+        suppressedBy: "recent-user",
+        nextEligibleAt: lastUser + 20 * MINUTE,
+        score: 0,
+        state
+      };
+    }
+
+    const pace = paceFor(character);
+    if (!pace) return { allowed: false, suppressedBy: "disabled", nextEligibleAt: 0, score: 0, state };
+    const record = proactiveRecord(character.id, now);
+    if (record.count >= pace.dailyCap) {
+      return {
+        allowed: false,
+        suppressedBy: "daily-cap",
+        nextEligibleAt: tomorrowStart(now),
+        score: 0,
+        state,
+        record
+      };
+    }
+    if (record.lastSentAt && now - record.lastSentAt < pace.minGapMs) {
+      return {
+        allowed: false,
+        suppressedBy: "cooldown",
+        nextEligibleAt: record.lastSentAt + pace.minGapMs,
+        score: 0,
+        state,
+        record
+      };
+    }
+
+    return {
+      allowed: true,
+      suppressedBy: "",
+      nextEligibleAt: 0,
+      score: scoreIntent(intent, state, record, now),
+      state,
+      record
+    };
+  }
+
+  function localMessage(character, state, intent) {
+    const reason = intent.reason || "care";
+    const lines = {
+      silence: [
+        "安静了一阵，忽然想问你一句。",
+        "刚刚空下来，想起你之前说的话。",
+        "没什么事，就是想看看你在不在。"
+      ],
+      memory: [
+        "突然想起你上次说的那件事。后来怎么样了？",
+        "今天有一瞬间想起你，顺手就想给你发条消息。"
+      ],
+      promise: [
+        "我记着你之前答应过的事。别装忘。",
+        "突然想起我们说过的那件事，等你空下来再说。"
+      ],
+      event: [
+        `今天${state && state.activity ? state.activity : "忙完"}的时候，遇到一件小事，想跟你说。`,
+        "刚刚发生了一件很小的事，第一个想到的是你。",
+        "今天有一点不一样，想让你也知道。"
+      ],
+      care: [
+        "今天还好吗？不用急着回。",
+        "刚想起你，不知道你今天顺不顺。",
+        "在做什么？我这边刚空下来。"
+      ]
+    };
+    if (state && state.availability === "busy") {
+      return pick([
+        `刚忙完一阵，看到你之前那条。现在才回。`,
+        `今天${state.activity}有点久，才空下来。你那边怎么样？`,
+        `还在${state.location}，可能回得慢。先跟你说一声。`
+      ], `${character.id}:${intent.id}:busy`);
+    }
+    return pick(lines[reason] || lines.care, `${character.id}:${intent.id}:${reason}`);
+  }
+
+  async function generateMessage(character, state, intent) {
+    const providerId = E.activeProvider();
+    const provider = E.PROVIDERS[providerId] || E.PROVIDERS.demo;
+    const useModel = E.state.settings.proactiveUseModel && provider.kind !== "demo" && typeof E.chatComplete === "function";
+    if (!useModel) return localMessage(character, state, intent);
+    try {
+      const chat = directChatFor(character.id);
+      const history = chat ? E.getChatMessages(chat.id).slice(-6) : [];
+      const transcript = history
+        .filter((message) => message.content)
+        .map((message) => `${message.role === "user" ? "用户" : character.name}：${message.content}`)
+        .join("\n");
+      const system = [
+        `你是「${character.name}」，正在用手机主动给用户发一条消息。`,
+        `角色设定：${character.persona || "一个住在手机里的角色。"}`,
+        `你们的关系：${character.relationship || "朋友"}。`,
+        `你此刻的状态：${state ? state.statusLine : "刚空下来"}。`,
+        `你想联系对方的原因：${REASON_LABELS[intent.reason] || "想起对方"}。`,
+        "只输出你发出去的那条消息，1 到 2 句，口语化，不要解释，不要加引号，不要写角色名。",
+        "如果当前不方便，可以写得短一点，或者说明晚点再聊。"
+      ].join("\n");
+      const text = await E.chatComplete([
+        { role: "system", content: system },
+        { role: "user", content: transcript || "（你们有一阵没说话了）" }
+      ], { stream: false, temperature: 0.9, maxTokens: 160 });
+      const value = String(text || "").trim();
+      return value || localMessage(character, state, intent);
+    } catch (error) {
+      console.warn("主动消息模型生成失败，使用本地模板", error);
+      return localMessage(character, state, intent);
+    }
+  }
+
+  async function sendIntent(intent, now) {
+    if (!intent || intent.status === "sent") return null;
+    const existing = E.state.messages.find((message) => message.intentId === intent.id);
+    if (existing) {
+      intent.status = "sent";
+      intent.sentAt = Number(existing.createdAt) || now;
+      return existing;
+    }
+    const character = E.getCharacter(intent.characterId);
+    if (!character) return null;
+    const state = E.characterStateFor(character, now);
+    intent.status = "sending";
+    await E.saveLifeState();
+    const chat = await E.ensureDirectChat(character.id);
+    const text = await generateMessage(character, state, intent);
+    const message = {
+      id: E.uid("msg"),
+      chatId: chat.id,
+      role: "assistant",
+      characterId: character.id,
+      content: text,
+      createdAt: now,
+      source: "proactive",
+      intentId: intent.id,
+      stateSnapshot: state ? {
+        activity: state.activity,
+        location: state.location,
+        availability: state.availability,
+        interruptibility: state.interruptibility
+      } : null
+    };
+    E.state.messages.push(message);
+    await E.saveMessage(message);
+    chat.unread = (Number(chat.unread) || 0) + 1;
+    chat.lastMessageAt = now;
+    await E.saveChat(chat);
+    await E.addNotification({
+      title: character.name,
+      body: text.slice(0, 90),
+      app: "chat",
+      route: `#/chat/${chat.id}`
+    });
+    intent.status = "sent";
+    intent.sentAt = now;
+    intent.suppressedBy = "";
+    intent.nextEligibleAt = 0;
+    const record = proactiveRecord(character.id, now);
+    record.count += 1;
+    record.lastSentAt = now;
+    record.lastReason = intent.reason;
+    record.lastSuppressedBy = "";
+    record.lastEvaluatedAt = now;
+    record.nextEligibleAt = 0;
+    await E.saveLifeState();
+    if (E.state.locked) {
+      E.renderLockScreen();
+      E.renderStatus();
+    } else {
+      const route = E.parseRoute();
+      if (route.name === "chat" && route.args[0] === chat.id) E.refreshThreadMessages(chat);
+      else E.renderStatus();
+      E.renderNotificationDrawer();
+    }
+    return message;
+  }
+
+  async function tickInternal(nowValue, options) {
+    if (!E.state || !E.state.ready || !E.state.settings) return { sent: null, evaluated: 0 };
+    const now = Number(nowValue) || Date.now();
+    const onlyCharacterId = options && options.characterId ? String(options.characterId) : "";
+    const life = lifeState();
+    const characters = (E.state.characters || []).filter((character) => enabled(character)
+      && (!onlyCharacterId || character.id === onlyCharacterId));
+    for (const character of characters.slice(0, 16)) {
+      ensureIntent(character, now);
+    }
+    const due = life.intents
+      .filter((intent) => ["pending", "sending"].includes(intent.status)
+        && (!onlyCharacterId || intent.characterId === onlyCharacterId))
+      .sort((a, b) => Number(a.dueAt) - Number(b.dueAt));
+    let sent = null;
+    let evaluated = 0;
+    for (const intent of due) {
+      if (intent.status === "sending") {
+        if (now - Number(intent.lastEvaluatedAt) > 2 * MINUTE) intent.status = "pending";
+        else continue;
+      }
+      const evaluation = evaluateIntent(intent, now);
+      evaluated += 1;
+      intent.lastEvaluatedAt = now;
+      intent.score = evaluation.score;
+      intent.suppressedBy = evaluation.suppressedBy;
+      const record = proactiveRecord(intent.characterId, now);
+      record.lastEvaluatedAt = now;
+      record.lastSuppressedBy = evaluation.suppressedBy;
+      if (evaluation.suppressedBy === "expired") {
+        intent.status = "expired";
+        continue;
+      }
+      if (!evaluation.allowed) {
+        if (evaluation.nextEligibleAt) {
+          intent.nextEligibleAt = evaluation.nextEligibleAt;
+          intent.dueAt = Math.max(Number(intent.dueAt) || 0, evaluation.nextEligibleAt);
+          record.nextEligibleAt = evaluation.nextEligibleAt;
+        }
+        continue;
+      }
+      if (!sent) {
+        sent = await sendIntent(intent, now);
+        if (sent) break;
+      }
+    }
+    await E.saveLifeState();
+    return { sent, evaluated };
+  }
+
+  async function tick(nowValue, options) {
+    if (activeTick) return activeTick;
+    activeTick = tickInternal(nowValue, options);
+    try {
+      return await activeTick;
+    } finally {
+      activeTick = null;
+    }
+  }
+
+  async function onUserMessage(chat, nowValue) {
+    if (!chat || chat.type !== "direct") return;
+    const characterId = Array.isArray(chat.characterIds) ? chat.characterIds[0] : "";
+    if (!characterId) return;
+    const now = Number(nowValue) || Date.now();
+    const life = lifeState();
+    const intent = life.intents.find((item) => item.characterId === characterId
+      && ["pending", "sending"].includes(item.status));
+    if (intent) {
+      intent.suppressedBy = "recent-user";
+      intent.nextEligibleAt = now + 25 * MINUTE;
+      intent.dueAt = Math.max(Number(intent.dueAt) || 0, intent.nextEligibleAt);
+      intent.lastEvaluatedAt = now;
+    }
+    const record = proactiveRecord(characterId, now);
+    record.lastSuppressedBy = "recent-user";
+    record.lastEvaluatedAt = now;
+    record.nextEligibleAt = now + 25 * MINUTE;
+    await E.saveLifeState();
+  }
+
+  function debugSnapshot(characterId) {
+    const now = Date.now();
+    const characters = (E.state.characters || []).filter((character) => !characterId || character.id === characterId);
+    return characters.map((character) => {
+      const state = E.characterStateFor(character, now);
+      const pace = paceFor(character);
+      const record = proactiveRecord(character.id, now);
+      const pending = pendingIntentFor(character.id);
+      const evaluation = pending ? evaluateIntent(pending, now) : null;
+      return {
+        character,
+        state,
+        mode: modeFor(character),
+        modeLabel: E.proactiveModeLabel(modeFor(character)),
+        enabled: enabled(character),
+        pace,
+        record,
+        pending,
+        evaluation,
+        lastSentAt: record.lastSentAt,
+        todayCount: record.count,
+        dailyCap: pace ? pace.dailyCap : 0,
+        lastSuppressedBy: record.lastSuppressedBy,
+        lastReason: record.lastReason,
+        nextEligibleAt: evaluation && evaluation.nextEligibleAt
+          ? evaluation.nextEligibleAt
+          : (record.nextEligibleAt || (pending ? pending.dueAt : 0))
+      };
+    });
+  }
+
+  E.proactiveEngine = {
+    enabled,
+    paceFor,
+    modeFor,
+    ensureIntent,
+    evaluateIntent,
+    tick,
+    onUserMessage,
+    debugSnapshot,
+    messageText: localMessage,
+    async clearPending(characterId) {
+      if (!characterId) return;
+      const life = lifeState();
+      life.intents = life.intents.filter((intent) => intent.characterId !== characterId
+        || !["pending", "sending"].includes(intent.status));
+      const record = life.proactive[characterId];
+      if (record) {
+        record.lastSuppressedBy = "";
+        record.nextEligibleAt = 0;
+      }
+      await E.saveLifeState();
+    },
+    suppressLabel(suppressedBy) {
+      return SUPPRESS_LABELS[suppressedBy] || suppressedBy || "可以发送";
+    },
+    reasonLabel(reason) {
+      return REASON_LABELS[reason] || "想起你";
+    },
+    async onBoot() {
+      const life = lifeState();
+      for (const intent of life.intents) {
+        if (intent.status === "sending") intent.status = "pending";
+      }
+      await tick();
+    },
+    async onVisible() {
+      await tick();
+    },
+    async onHidden() {
+      await E.saveLifeState();
+    }
   };
 })();
 
@@ -4965,6 +5993,23 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     return `【你最近的生活】\n${rows.join("\n")}\n这些是你自己经历过的事。聊天时可以自然带一句，但不要逐条汇报。`;
   };
 
+  E.buildCharacterStateContext = function (character) {
+    if (!character || typeof E.characterStateFor !== "function") return "";
+    const state = E.characterStateFor(character);
+    if (!state) return "";
+    const next = state.nextBlock
+      ? `接下来：${state.nextBlock.activity}（${E.fmtClock(state.nextBlockAt)}）`
+      : "";
+    return [
+      "【此刻状态】",
+      `你正在：${state.activity}${state.location ? `（${state.location}）` : ""}`,
+      `是否方便回：${state.availabilityLabel}，可打扰度：${state.interruptibilityLabel}`,
+      `回复风格：${state.replyStyle}`,
+      next,
+      "不要直接报出这些字段，只把它们当作语气、回复长度和主动性的背景。"
+    ].filter(Boolean).join("\n");
+  };
+
   E.buildChatContext = function (chat) {
     const userName = E.state.settings.userName || "我";
     let character = null;
@@ -4981,8 +6026,21 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const memories = recall.memories
       .map((memory) => `- [${E.memoryLayerLabel(memory.layer)}]${memory.pinned ? "【置顶】" : ""}${memory.content}`);
 
+    const worldbookContext = recentMessages
+      .filter((message) => message.role === "user")
+      .slice(-4)
+      .map((message) => message.content)
+      .join("\n");
     const worldbook = (character.worldbook || [])
-      .slice(0, 12)
+      .map((entry) => ({
+        ...entry,
+        keywords: Array.isArray(entry.keywords) ? entry.keywords.filter(Boolean) : [],
+        priority: Number(entry.priority) || 0
+      }))
+      .filter((entry) => !entry.keywords.length
+        || entry.keywords.some((keyword) => worldbookContext.includes(keyword)))
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, 6)
       .map((entry) => `【${entry.title}】${entry.content}`);
 
     const system = [
@@ -4991,13 +6049,14 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       "请始终保持这个角色的口吻、习惯和边界，不要解释自己是 AI，不要输出系统提示或分析过程。",
       "回复要像真实手机聊天：自然、口语化，通常 1 到 4 句，不要每次都写成大段独白。",
       E.buildChatTimeContext(chat),
+      E.buildCharacterStateContext(character),
       character.persona ? `\n角色设定：\n${character.persona}` : "",
       character.example ? `\n说话示例：\n${character.example}` : "",
       worldbook.length ? `\n世界书：\n${worldbook.join("\n")}` : "",
       memories.length ? `\n你记得的事（只在相关时自然使用，不要逐条复述）：\n${memories.join("\n")}` : "",
       E.buildLifeContext(character),
       chat.type === "group"
-        ? `\n这是一个群聊，参与者有：${(chat.characterIds || []).map((id) => (E.getCharacter(id) || {}).name).filter(Boolean).join("、")}。当前由你回复。直接输出你说的话，不要加“${character.name}：”这样的前缀。`
+        ? `\n这是一个群聊，参与者有：${(chat.characterIds || []).map((id) => (E.getCharacter(id) || {}).name).filter(Boolean).join("、")}。当前由你回复。你只知道这个群聊里发生的事，以及你和用户单独聊天时你亲历过的事；其他角色的私聊内容不会自动共享给你。直接输出你说的话，不要加“${character.name}：”这样的前缀。`
         : ""
     ].filter(Boolean).join("\n");
 
@@ -5172,6 +6231,14 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       5
     );
     updated.layer = E.normalizeMemoryLayer(next.layer, next.content || old.content);
+    const scopeRank = { private: 0, group: 1, public: 2 };
+    updated.scope = (scopeRank[next.scope] || 0) > (scopeRank[old.scope] || 0)
+      ? next.scope
+      : old.scope || "private";
+    updated.knownBy = Array.from(new Set([
+      ...(Array.isArray(old.knownBy) ? old.knownBy : []),
+      ...(Array.isArray(next.knownBy) ? next.knownBy : [])
+    ]));
     updated.tags = E.normalizeMemoryTags(
       [...(Array.isArray(old.tags) ? old.tags : []), ...(Array.isArray(next.tags) ? next.tags : [])],
       old.content || next.content
@@ -5185,11 +6252,22 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     return updated;
   };
 
+  E.memoryVisibleTo = function (memory, characterId) {
+    if (!memory || !characterId) return false;
+    if (memory.scope === "public") return true;
+    if (memory.scope === "group"
+      && Array.isArray(memory.knownBy)
+      && memory.knownBy.includes(characterId)) return true;
+    return memory.characterId === characterId;
+  };
+
   E.rankMemories = function (characterId, query, limit) {
     const queryTokens = E.memoryTokens(query);
     const now = Date.now();
     return E.state.memories
-      .filter((memory) => memory.characterId === characterId && memory.content && !["archived", "deleted"].includes(memory.status))
+      .filter((memory) => E.memoryVisibleTo(memory, characterId)
+        && memory.content
+        && !["archived", "deleted"].includes(memory.status))
       .map((memory) => {
         const memoryTokens = E.memoryTokens(memory.content);
         let overlap = 0;
@@ -5375,9 +6453,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         return `${speaker}：${message.content}`;
       })
       .join("\n");
-    const known = E.state.memories
-      .filter((memory) => memory.characterId === character.id)
-      .slice(0, 12)
+    const known = E.rankMemories(character.id, "", 12)
       .map((memory) => `- ${memory.content}`)
       .join("\n");
     const system = [
@@ -5406,7 +6482,11 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
   };
 
   E.saveExtractedMemories = async function (characterId, candidates, chat, sourceMessages) {
-    const existing = E.state.memories.filter((memory) => memory.characterId === characterId);
+    const existing = E.state.memories.filter((memory) => E.memoryVisibleTo(memory, characterId));
+    const scope = chat && chat.type === "group" ? "group" : "private";
+    const knownBy = scope === "group"
+      ? (chat.characterIds || []).map(String).filter(Boolean)
+      : [characterId];
     const added = [];
     const merged = [];
     for (const candidate of candidates || []) {
@@ -5422,6 +6502,8 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
           importance: candidate.importance,
           layer,
           tags,
+          scope,
+          knownBy,
           sourceMessageIds: (sourceMessages || []).map((message) => message.id).filter(Boolean),
           lastUsedAt: Date.now()
         }, Date.now());
@@ -5436,6 +6518,8 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         content,
         importance: candidate.importance,
         source: "auto",
+        scope,
+        knownBy,
         layer,
         tags,
         sourceChatId: chat ? chat.id : "",
@@ -6074,6 +7158,39 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
 
   const E = window.Ember;
 
+  function proactiveModeOptions() {
+    return [
+      { value: "inherit", label: "跟随全局" },
+      { value: "off", label: "关闭" },
+      { value: "quiet", label: "安静" },
+      { value: "normal", label: "正常" },
+      { value: "lively", label: "热闹" }
+    ];
+  }
+
+  function parseWorldbookKeywords(value) {
+    return Array.from(new Set(
+      String(value || "")
+        .split(/[,，、;；\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )).slice(0, 12);
+  }
+
+  function memoryScopeLabel(scope) {
+    if (scope === "group") return "群聊共享";
+    if (scope === "public") return "所有角色可见";
+    return "仅本人知情";
+  }
+
+  function memoryKnownNames(memory) {
+    const ids = Array.isArray(memory && memory.knownBy) ? memory.knownBy : [];
+    return ids
+      .map((id) => E.getCharacter(id))
+      .filter(Boolean)
+      .map((character) => character.name);
+  }
+
   E.renderContactsHTML = function () {
     const characters = E.state.characters.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "zh"));
     return `
@@ -6162,8 +7279,11 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const character = E.getCharacter(characterId);
     if (!character) return `<div class="app-page">${E.appHeaderHTML("角色")}<div class="app-body">${E.emptyState("contacts", "角色不存在", "这个角色可能已经被删除了。")}</div></div>`;
     const tab = E.state.characterTab || "persona";
+    const state = E.characterStateFor(character);
     const memories = E.state.memories
-      .filter((item) => item.characterId === character.id)
+      .filter((item) => typeof E.memoryVisibleTo === "function"
+        ? E.memoryVisibleTo(item, character.id)
+        : item.characterId === character.id)
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.updatedAt || b.createdAt) - Number(a.updatedAt || a.createdAt));
     const worldbook = character.worldbook || [];
     let tabBody = "";
@@ -6179,6 +7299,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
           <div class="entry-row">
             <div class="entry-title">${E.escapeHTML(entry.title || "设定")}</div>
             <div class="entry-text">${E.escapeHTML(entry.content || "")}</div>
+            ${Array.isArray(entry.keywords) && entry.keywords.length ? `<div class="entry-actions"><span class="muted tiny">触发词：${entry.keywords.map(E.escapeHTML).join(" / ")}</span></div>` : ""}
             <div class="entry-actions">
               <button class="icon-btn" data-action="delete-worldbook" data-id="${E.escapeHTML(character.id)}" data-entry="${E.escapeHTML(entry.id)}" aria-label="删除">${E.icon("trash", 15)}</button>
             </div>
@@ -6197,15 +7318,17 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
               <span class="row" style="gap:4px;flex-wrap:wrap">
                 <span class="pill">${E.escapeHTML(E.memoryLayerLabel(memory.layer))}</span>
                 <span class="pill">${E.escapeHTML(E.memorySourceLabel(memory))}</span>
+                <span class="pill">${E.escapeHTML(E.memoryScopeLabel(memory.scope))}</span>
               </span>
               <div class="row" style="gap:0">
+                <button class="icon-btn" data-action="edit-memory" data-id="${E.escapeHTML(memory.id)}" aria-label="编辑">${E.icon("edit", 15)}</button>
                 <button class="icon-btn" data-action="toggle-memory-pin" data-id="${E.escapeHTML(memory.id)}" aria-label="${memory.pinned ? "取消置顶" : "置顶"}">${E.icon("pin", 15)}</button>
                 <button class="icon-btn" data-action="delete-memory" data-id="${E.escapeHTML(memory.id)}" aria-label="删除">${E.icon("trash", 15)}</button>
               </div>
             </div>
             <div class="entry-text" style="margin-top:0">${E.escapeHTML(memory.content || "")}</div>
             <div class="entry-actions">
-              <span class="muted tiny" style="margin-right:auto">重要度 ${Number(memory.importance || 1)} · ${E.fmtRelative(memory.updatedAt || memory.createdAt)}${memory.pinned ? " · 已置顶" : ""}${Array.isArray(memory.tags) && memory.tags.length ? ` · ${memory.tags.map((tag) => E.escapeHTML(tag)).join(" / ")}` : ""}</span>
+              <span class="muted tiny" style="margin-right:auto">来源 ${E.escapeHTML(E.memorySourceDetail(memory))} · 重要度 ${Number(memory.importance || 1)} · ${E.fmtRelative(memory.updatedAt || memory.createdAt)}${memory.pinned ? " · 已置顶" : ""}${Array.isArray(memory.tags) && memory.tags.length ? ` · ${memory.tags.map((tag) => E.escapeHTML(tag)).join(" / ")}` : ""}</span>
             </div>
           </div>
         `).join("") : E.emptyState("memory", "还没有记忆", "聊天里值得留下的事，可以手动记在这里。")}
@@ -6224,12 +7347,25 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
           <div class="profile-hero">
             ${E.avatar(character, "lg")}
             <div class="profile-name">${E.escapeHTML(character.name)}</div>
-            <div class="profile-sub">${E.escapeHTML(character.relationship || "朋友")}${character.tags && character.tags.length ? ` · ${character.tags.map(E.escapeHTML).join(" / ")}` : ""}</div>
+            <div class="profile-sub">${E.escapeHTML(character.relationship || "朋友")}${character.tags && character.tags.length ? ` · ${character.tags.map(E.escapeHTML).join(" / ")}` : ""} · 主动消息 ${E.escapeHTML(E.proactiveModeLabel(character.proactiveMode))}</div>
             <div class="profile-actions">
               <button class="btn" data-action="start-chat" data-id="${E.escapeHTML(character.id)}">${E.icon("chat", 16)} 聊天</button>
               <button class="btn ghost" data-action="export-character" data-id="${E.escapeHTML(character.id)}">${E.icon("download", 16)} 导出</button>
             </div>
           </div>
+          ${state ? `
+            <div class="character-state-card">
+              <span class="character-state-dot ${E.escapeHTML(state.availability)}"></span>
+              <div class="grow">
+                <div class="character-state-title">${E.escapeHTML(state.statusLine)}</div>
+                <div class="character-state-sub">${E.escapeHTML(state.location)} · 精力 ${state.energy}% · ${E.escapeHTML(state.replyStyle)}</div>
+              </div>
+              <div class="character-state-side">
+                <div>${state.nextBlock ? `接下来 ${E.fmtClock(state.nextBlockAt)} ${E.escapeHTML(state.nextBlock.activity)}` : ""}</div>
+                <button class="text-btn" data-action="proactive-debug" data-id="${E.escapeHTML(character.id)}">为什么</button>
+              </div>
+            </div>
+          ` : ""}
           <div class="tabs">
             <button class="tab ${tab === "persona" ? "active" : ""}" data-action="character-tab" data-tab="persona">人设</button>
             <button class="tab ${tab === "worldbook" ? "active" : ""}" data-action="character-tab" data-tab="worldbook">世界书</button>
@@ -6264,15 +7400,17 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
                   <span class="row" style="gap:4px;flex-wrap:wrap">
                     <span class="pill">${E.escapeHTML(E.memoryLayerLabel(memory.layer))}</span>
                     <span class="pill">${E.escapeHTML(E.memorySourceLabel(memory))}</span>
+                    <span class="pill">${E.escapeHTML(E.memoryScopeLabel(memory.scope))}</span>
                   </span>
                   <div class="row" style="gap:0">
+                    <button class="icon-btn" data-action="edit-memory" data-id="${E.escapeHTML(memory.id)}" aria-label="编辑">${E.icon("edit", 15)}</button>
                     <button class="icon-btn" data-action="toggle-memory-pin" data-id="${E.escapeHTML(memory.id)}" aria-label="${memory.pinned ? "取消置顶" : "置顶"}">${E.icon("pin", 15)}</button>
                     <button class="icon-btn" data-action="delete-memory" data-id="${E.escapeHTML(memory.id)}" aria-label="删除">${E.icon("trash", 15)}</button>
                   </div>
                 </div>
                 <div class="entry-text" style="margin-top:0">${E.escapeHTML(memory.content)}</div>
                 <div class="entry-actions">
-                  <span class="muted tiny" style="margin-right:auto">重要度 ${Number(memory.importance || 1)} · ${E.fmtRelative(memory.updatedAt || memory.createdAt)}${memory.pinned ? " · 已置顶" : ""}${Array.isArray(memory.tags) && memory.tags.length ? ` · ${memory.tags.map((tag) => E.escapeHTML(tag)).join(" / ")}` : ""}</span>
+                  <span class="muted tiny" style="margin-right:auto">来源 ${E.escapeHTML(E.memorySourceDetail(memory))} · 重要度 ${Number(memory.importance || 1)} · ${E.fmtRelative(memory.updatedAt || memory.createdAt)}${memory.pinned ? " · 已置顶" : ""}${Array.isArray(memory.tags) && memory.tags.length ? ` · ${memory.tags.map((tag) => E.escapeHTML(tag)).join(" / ")}` : ""}</span>
                 </div>
               </div>
             `).join("")}
@@ -6289,6 +7427,25 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     return "手动添加";
   };
 
+  E.memoryScopeLabel = memoryScopeLabel;
+
+  E.memorySourceDetail = function (memory) {
+    if (!memory) return "记忆";
+    const names = memoryKnownNames(memory);
+    const scope = memory.scope === "group"
+      ? `群聊共享${names.length ? `（${names.join("、")}）` : ""}`
+      : memory.scope === "public"
+        ? "所有角色可见"
+        : names.length ? `仅${names.join("、")}知情` : "仅本人知情";
+    const parts = [E.memorySourceLabel(memory), scope];
+    const chat = memory.sourceChatId ? E.getChat(memory.sourceChatId) : null;
+    if (chat) parts.push(`来自「${E.chatTitle(chat)}」`);
+    if (Number(memory.confidence) && Number(memory.confidence) < 0.9) {
+      parts.push(`可信度 ${Math.round(Number(memory.confidence) * 100)}%`);
+    }
+    return parts.join(" · ");
+  };
+
   E.addCharacterFlow = function () {
     E.formSheet({
       title: "新增角色",
@@ -6297,7 +7454,8 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         { name: "relationship", label: "关系", value: "朋友", placeholder: "朋友 / 暧昧 / 旧友" },
         { name: "persona", label: "人设", type: "textarea", placeholder: "年龄、性格、习惯、说话方式……" },
         { name: "greeting", label: "第一句话", type: "textarea", placeholder: "打开聊天时，她说的第一句话。" },
-        { name: "color", label: "主题色", type: "color", value: "#c87f8a" }
+        { name: "color", label: "主题色", type: "color", value: "#c87f8a" },
+        { name: "proactiveMode", label: "主动消息", type: "select", value: "inherit", options: proactiveModeOptions(), hint: "跟随全局会使用设置里的主动节奏；关闭后这个角色不会主动发消息。" }
       ],
       submitLabel: "创建角色",
       onSubmit: async (values) => {
@@ -6307,6 +7465,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
           persona: values.persona.trim(),
           greeting: values.greeting.trim(),
           color: values.color,
+          proactiveMode: values.proactiveMode,
           worldbook: []
         });
         E.state.characters.push(character);
@@ -6327,7 +7486,8 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         { name: "relationship", label: "关系", value: character.relationship || "朋友" },
         { name: "persona", label: "人设", type: "textarea", value: character.persona || "" },
         { name: "greeting", label: "第一句话", type: "textarea", value: character.greeting || "" },
-        { name: "color", label: "主题色", type: "color", value: character.color || "#c87f8a" }
+        { name: "color", label: "主题色", type: "color", value: character.color || "#c87f8a" },
+        { name: "proactiveMode", label: "主动消息", type: "select", value: character.proactiveMode || "inherit", options: proactiveModeOptions(), hint: "这个设置只影响主动消息，不会影响你主动找她时的回复。" }
       ],
       submitLabel: "保存",
       onSubmit: async (values) => {
@@ -6336,6 +7496,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         character.persona = values.persona.trim();
         character.greeting = values.greeting.trim();
         character.color = values.color || character.color;
+        character.proactiveMode = values.proactiveMode || "inherit";
         await E.db.put("characters", character);
         E.toast("已保存");
         E.renderRoute();
@@ -6384,6 +7545,56 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     });
   };
 
+  E.proactiveDebugFlow = function (characterId) {
+    const rows = E.proactiveEngine.debugSnapshot(characterId);
+    if (!rows.length) {
+      E.toast("还没有可调试的角色");
+      return;
+    }
+    const body = `
+      <div class="proactive-debug-intro">
+        主动消息会先排队，再经过勿扰、当前状态、最近聊天、冷却和每日上限几道门。这里显示的是角色此刻为什么发、或者为什么还没发。
+      </div>
+      ${rows.map((row) => {
+        const state = row.state;
+        const pending = row.pending;
+        const evaluation = row.evaluation;
+        const suppressed = evaluation && evaluation.suppressedBy
+          ? E.proactiveEngine.suppressLabel(evaluation.suppressedBy)
+          : "没有待评估意图";
+        const nextAt = row.nextEligibleAt ? E.fmtDateTime(row.nextEligibleAt) : "没有限制";
+        return `
+          <div class="proactive-debug-card">
+            <div class="row-between" style="align-items:flex-start;gap:10px">
+              <div>
+                <div class="proactive-debug-name">${E.escapeHTML(row.character.name)}</div>
+                <div class="muted tiny">${E.escapeHTML(row.modeLabel)} · ${row.enabled ? "已启用" : "已关闭"}${row.pace ? ` · 每天最多 ${row.dailyCap} 次` : ""}</div>
+              </div>
+              <span class="character-state-dot ${E.escapeHTML(state ? state.availability : "busy")}"></span>
+            </div>
+            <div class="proactive-debug-grid">
+              <span>此刻</span><b>${E.escapeHTML(state ? state.statusLine : "状态未知")}</b>
+              <span>地点</span><b>${E.escapeHTML(state ? state.location : "未知")}</b>
+              <span>可打扰度</span><b>${E.escapeHTML(state ? state.interruptibilityLabel : "未知")}</b>
+              <span>今日已发</span><b>${row.todayCount}${row.dailyCap ? ` / ${row.dailyCap}` : ""}</b>
+              <span>上次主动</span><b>${row.lastSentAt ? E.fmtRelative(row.lastSentAt) : "还没有"}</b>
+              <span>上次原因</span><b>${row.lastReason ? E.escapeHTML(E.proactiveEngine.reasonLabel(row.lastReason)) : "还没有"}</b>
+              <span>待发意图</span><b>${pending ? `${E.fmtDateTime(pending.dueAt)} · ${E.escapeHTML(E.proactiveEngine.reasonLabel(pending.reason))}` : "暂无"}</b>
+              <span>当前门控</span><b>${E.escapeHTML(suppressed)}</b>
+              <span>下次可评估</span><b>${E.escapeHTML(nextAt)}</b>
+            </div>
+          </div>
+        `;
+      }).join("")}
+      <div class="sheet-actions" style="margin-top:12px">
+        <button class="btn ghost" type="button" data-sheet-close>关闭</button>
+        <button class="btn" type="button" data-action="proactive-tick-now" ${characterId ? `data-id="${E.escapeHTML(characterId)}"` : ""}>${E.icon("refresh", 15)} 现在评估一次</button>
+      </div>
+      ${characterId ? `<button class="btn ghost" type="button" data-action="proactive-clear-intent" data-id="${E.escapeHTML(characterId)}" style="width:100%;margin-top:8px">清空这个角色的待发意图</button>` : ""}
+    `;
+    E.openSheet({ title: "主动消息调试", body });
+  };
+
   E.deleteCharacterFlow = async function (id) {
     const character = E.getCharacter(id);
     if (!character) return;
@@ -6413,11 +7624,19 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       title: "添加世界书",
       fields: [
         { name: "title", label: "标题", placeholder: "例如：常去的店" },
+        { name: "keywords", label: "触发词", placeholder: "用逗号分隔，例如：书店, 留白, 下雨", hint: "留空时这条设定会常驻；填写后只在最近对话出现这些词时加入提示词。" },
+        { name: "priority", label: "优先级", type: "number", value: 0, step: "1", hint: "数字越大越优先，最多加入 6 条世界书。" },
         { name: "content", label: "内容", type: "textarea", required: true, placeholder: "这个地方、习惯或秘密……" }
       ],
       onSubmit: async (values) => {
         character.worldbook = character.worldbook || [];
-        character.worldbook.push({ id: E.uid("wb"), title: values.title.trim() || "设定", content: values.content.trim() });
+        character.worldbook.push({
+          id: E.uid("wb"),
+          title: values.title.trim() || "设定",
+          content: values.content.trim(),
+          keywords: parseWorldbookKeywords(values.keywords),
+          priority: Number(values.priority) || 0
+        });
         await E.db.put("characters", character);
         E.toast("世界书已更新");
         E.renderRoute();
@@ -6453,29 +7672,102 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       { name: "content", label: "记忆内容", type: "textarea", required: true, placeholder: "她应该记住什么？" },
       { name: "layer", label: "记忆层级", type: "select", options: [{ value: "", label: "自动判断" }, ...Object.entries(E.MEMORY_LAYERS).map(([value, item]) => ({ value, label: item.label }))] },
       { name: "importance", label: "重要度 1–5", type: "number", value: 3, step: "1" },
-      { name: "pinned", label: "置顶这条记忆", type: "checkbox", value: false }
+      { name: "pinned", label: "置顶这条记忆", type: "checkbox", value: false },
+      { name: "scope", label: "知情范围", type: "select", value: "private", options: [
+        { value: "private", label: "仅角色本人" },
+        { value: "group", label: "群聊共享" },
+        { value: "public", label: "所有角色可见" }
+      ], hint: "私聊记忆默认只属于这个角色；群聊共享会出现在群成员的共同记忆里。" }
     );
     E.formSheet({
       title: "添加记忆",
       fields,
       onSubmit: async (values) => {
+        const ownerId = characterId || values.characterId;
+        const scope = values.scope || "private";
+        const knownBy = scope === "private"
+          ? [ownerId]
+          : E.state.characters.map((character) => character.id);
         const memory = E.normalizeMemory({
           id: E.uid("mem"),
-          characterId: characterId || values.characterId,
+          characterId: ownerId,
           content: values.content.trim(),
           importance: E.clamp(Number(values.importance) || 3, 1, 5),
           pinned: !!values.pinned,
           source: "manual",
+          scope,
+          knownBy,
           layer: values.layer,
           tags: [],
           sourceChatId: "",
           sourceMessageIds: [],
+          confidence: 1,
+          lastConfirmedAt: Date.now(),
           createdAt: Date.now(),
           updatedAt: Date.now()
         });
         E.state.memories.push(memory);
         await E.db.put("memories", memory);
         E.toast("记忆已添加");
+        E.renderRoute();
+      }
+    });
+  };
+
+  E.editMemoryFlow = function (id) {
+    const memory = E.state.memories.find((item) => item.id === id);
+    if (!memory) return;
+    const selected = Array.isArray(memory.knownBy) && memory.knownBy.length
+      ? memory.knownBy
+      : [memory.characterId];
+    const knownByFields = E.state.characters.map((character) => ({
+      name: `known_${character.id}`,
+      label: character.name,
+      type: "checkbox",
+      value: selected.includes(character.id)
+    }));
+    E.formSheet({
+      title: "编辑记忆",
+      fields: [
+        { name: "content", label: "记忆内容", type: "textarea", required: true, value: memory.content },
+        { name: "layer", label: "记忆层级", type: "select", value: memory.layer, options: Object.entries(E.MEMORY_LAYERS).map(([value, item]) => ({ value, label: item.label })) },
+        { name: "importance", label: "重要度 1–5", type: "number", value: memory.importance, step: "1" },
+        { name: "pinned", label: "置顶这条记忆", type: "checkbox", value: !!memory.pinned },
+        { name: "scope", label: "知情范围", type: "select", value: memory.scope || "private", options: [
+          { value: "private", label: "仅角色本人" },
+          { value: "group", label: "群聊共享" },
+          { value: "public", label: "所有角色可见" }
+        ], hint: "私聊只让这个角色知道；群聊共享会让群成员都带着这条记忆。" },
+        ...knownByFields
+      ],
+      submitLabel: "保存记忆",
+      onSubmit: async (values) => {
+        const scope = values.scope || "private";
+        const checked = E.state.characters
+          .filter((character) => values[`known_${character.id}`])
+          .map((character) => character.id);
+        const knownBy = scope === "private"
+          ? [memory.characterId]
+          : checked.length
+            ? checked
+            : scope === "public"
+              ? E.state.characters.map((character) => character.id)
+              : (Array.isArray(memory.knownBy) && memory.knownBy.length ? memory.knownBy : [memory.characterId]);
+        const updated = E.normalizeMemory({
+          ...memory,
+          content: values.content.trim(),
+          layer: values.layer,
+          importance: E.clamp(Number(values.importance) || 3, 1, 5),
+          pinned: !!values.pinned,
+          scope,
+          knownBy,
+          confidence: 1,
+          lastConfirmedAt: Date.now(),
+          updatedAt: Date.now()
+        });
+        Object.assign(memory, updated);
+        await E.db.put("memories", memory);
+        E.toast("记忆已更新");
         E.renderRoute();
       }
     });
@@ -6566,9 +7858,14 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const messages = E.getChatMessages(chat.id);
     const members = (chat.characterIds || []).map((id) => E.getCharacter(id)).filter(Boolean);
     const directCharacter = chat.type === "direct" ? members[0] : null;
+    const directState = directCharacter && typeof E.characterStateFor === "function"
+      ? E.characterStateFor(directCharacter)
+      : null;
     const subtitle = chat.type === "group"
       ? members.map((item) => item.name).join(" · ")
-      : directCharacter ? directCharacter.relationship : "";
+      : directCharacter
+        ? [directCharacter.relationship, directState ? directState.shortLine : ""].filter(Boolean).join(" · ")
+        : "";
     const actions = chat.type === "direct" && directCharacter
       ? `<button class="header-btn" data-action="call-character" data-id="${E.escapeHTML(directCharacter.id)}" aria-label="打电话">${E.icon("phone", 18)}</button>
          <button class="header-btn" data-action="chat-menu" data-id="${E.escapeHTML(chat.id)}" aria-label="更多">${E.icon("more", 18)}</button>`
@@ -6737,6 +8034,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     await E.saveMessage(message);
     chat.lastMessageAt = message.createdAt;
     await E.saveChat(chat);
+    if (E.proactiveEngine) await E.proactiveEngine.onUserMessage(chat);
     E.renderRoute();
     await E.runAssistantReply(chat);
   };
@@ -7936,6 +9234,10 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const lifePaceOptions = Object.entries(E.LIFE_PACES)
       .map(([id, item]) => `<option value="${E.escapeHTML(id)}" ${id === lifePace ? "selected" : ""}>${E.escapeHTML(item.label)} · ${E.escapeHTML(item.description)}</option>`)
       .join("");
+    const proactivePace = E.state.settings.proactivePace || "normal";
+    const proactivePaceOptions = Object.entries(E.PROACTIVE_PACES)
+      .map(([id, item]) => `<option value="${E.escapeHTML(id)}" ${id === proactivePace ? "selected" : ""}>${E.escapeHTML(item.label)} · ${E.escapeHTML(item.description)}</option>`)
+      .join("");
     const note = providerId === "demo"
       ? "演示模式不需要 API。它会用本地模板生成回复，适合先体验界面。"
       : providerId === "sillytavern"
@@ -8011,6 +9313,25 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
               </div>
             </div>
             <button class="btn ghost" data-action="life-tick-now" style="width:100%">${E.icon("sparkles", 16)} 模拟一次三小时的离开</button>
+          </div>
+
+          <div class="section-label">主动消息</div>
+          <div class="card settings-group" style="padding:12px 14px">
+            <label style="display:flex;align-items:center;gap:9px;font-size:12px;color:var(--text)">
+              <input id="settings-proactive-enabled" type="checkbox" ${E.state.settings.proactiveEnabled !== false ? "checked" : ""} style="width:auto">
+              允许角色在合适的时候主动找你
+            </label>
+            <div class="hint" style="margin:4px 0 0 24px">角色会先看自己是不是在忙、是不是睡了，再看勿扰、最近聊天、冷却和每日上限。不会在你刚说完话时突然插进来。</div>
+            <div class="field" style="margin-top:12px">
+              <label>主动节奏</label>
+              <select id="settings-proactive-pace">${proactivePaceOptions}</select>
+            </div>
+            <label style="display:flex;align-items:center;gap:9px;font-size:12px;color:var(--text);margin-top:10px">
+              <input id="settings-proactive-use-model" type="checkbox" ${E.state.settings.proactiveUseModel ? "checked" : ""} style="width:auto">
+              主动消息使用模型生成
+            </label>
+            <div class="hint" style="margin:4px 0 0 24px">关闭时使用本地短句，不额外消耗 API；开启后会结合角色状态和最近聊天生成一句。</div>
+            <button class="btn ghost" data-action="proactive-debug" style="width:100%;margin-top:12px">${E.icon("sparkles", 16)} 查看主动消息调试</button>
           </div>
 
           <div class="section-label">模型接口</div>
@@ -8118,6 +9439,9 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     const typingDelay = document.getElementById("settings-typing-delay");
     const lifeEngine = document.getElementById("settings-life-engine");
     const lifePace = document.getElementById("settings-life-pace");
+    const proactiveEnabled = document.getElementById("settings-proactive-enabled");
+    const proactivePace = document.getElementById("settings-proactive-pace");
+    const proactiveUseModel = document.getElementById("settings-proactive-use-model");
     const dndEnabled = document.getElementById("settings-dnd-enabled");
     const dndStart = document.getElementById("settings-dnd-start");
     const dndEnd = document.getElementById("settings-dnd-end");
@@ -8128,6 +9452,9 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     if (typingDelay) E.state.settings.typingDelay = !!typingDelay.checked;
     if (lifeEngine) E.state.settings.lifeEngine = !!lifeEngine.checked;
     if (lifePace && E.LIFE_PACES[lifePace.value]) E.state.settings.lifePace = lifePace.value;
+    if (proactiveEnabled) E.state.settings.proactiveEnabled = !!proactiveEnabled.checked;
+    if (proactivePace && E.PROACTIVE_PACES[proactivePace.value]) E.state.settings.proactivePace = proactivePace.value;
+    if (proactiveUseModel) E.state.settings.proactiveUseModel = !!proactiveUseModel.checked;
     if (dndEnabled) E.state.settings.dndEnabled = !!dndEnabled.checked;
     if (dndStart && dndStart.value) E.state.settings.dndStart = dndStart.value;
     if (dndEnd && dndEnd.value) E.state.settings.dndEnd = dndEnd.value;
@@ -8336,6 +9663,7 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
   "use strict";
 
   const E = window.Ember;
+  let proactiveTicker = null;
 
   async function handleAction(action, el) {
     const id = el.dataset.id || "";
@@ -8371,6 +9699,9 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
       case "character-menu":
         E.characterMenuFlow(id);
         break;
+      case "proactive-debug":
+        E.proactiveDebugFlow(id);
+        break;
       case "export-character": {
         const character = E.getCharacter(id);
         if (character) {
@@ -8394,6 +9725,9 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         break;
       case "add-memory":
         E.addMemoryFlow(id);
+        break;
+      case "edit-memory":
+        E.editMemoryFlow(id);
         break;
       case "delete-memory":
         await E.deleteMemory(id);
@@ -8559,6 +9893,18 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
         E.closeSheet();
         if (E.parseRoute().name === "settings") E.renderRoute();
         break;
+      case "proactive-tick-now": {
+        const result = await E.proactiveEngine.tick(Date.now(), id ? { characterId: id } : undefined);
+        E.closeSheet();
+        E.toast(result.sent ? "已经发出一条主动消息" : "暂时没有适合发送的主动消息");
+        if (E.parseRoute().name === "settings") E.renderRoute();
+        break;
+      }
+      case "proactive-clear-intent":
+        await E.proactiveEngine.clearPending(id);
+        E.closeSheet();
+        E.toast("已清空待发意图");
+        break;
       default:
         break;
     }
@@ -8641,16 +9987,18 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     }
 
     document.addEventListener("visibilitychange", () => {
-      if (!E.lifeEngine) return;
       if (document.hidden) {
-        void E.lifeEngine.onHidden();
+        if (E.lifeEngine) void E.lifeEngine.onHidden();
+        if (E.proactiveEngine) void E.proactiveEngine.onHidden();
       } else {
-        void E.lifeEngine.onVisible();
+        if (E.lifeEngine) void E.lifeEngine.onVisible();
+        if (E.proactiveEngine) void E.proactiveEngine.onVisible();
       }
     });
 
     window.addEventListener("beforeunload", () => {
       if (E.lifeEngine) void E.lifeEngine.onHidden();
+      if (E.proactiveEngine) void E.proactiveEngine.onHidden();
     });
   }
 
@@ -8667,10 +10015,19 @@ window.EmberThemeAssets = {"rose-frost":{"wallpaper":"data:image/webp;base64,Ukl
     } catch (error) {
       console.warn("生活事件结算失败", error);
     }
+    try {
+      await E.proactiveEngine.onBoot();
+    } catch (error) {
+      console.warn("主动消息初始化失败", error);
+    }
     E.state.locked = true;
     E.renderShell();
     bindGlobalEvents();
     setInterval(E.updateClock, 30000);
+    if (proactiveTicker) clearInterval(proactiveTicker);
+    proactiveTicker = setInterval(() => {
+      if (!document.hidden) void E.proactiveEngine.tick();
+    }, 45000);
     setTimeout(() => {
       if (E.state.locked) {
         const hint = document.querySelector(".unlock-hint");

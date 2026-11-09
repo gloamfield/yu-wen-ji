@@ -45,6 +45,10 @@
     const lifePaceOptions = Object.entries(E.LIFE_PACES)
       .map(([id, item]) => `<option value="${E.escapeHTML(id)}" ${id === lifePace ? "selected" : ""}>${E.escapeHTML(item.label)} · ${E.escapeHTML(item.description)}</option>`)
       .join("");
+    const proactivePace = E.state.settings.proactivePace || "normal";
+    const proactivePaceOptions = Object.entries(E.PROACTIVE_PACES)
+      .map(([id, item]) => `<option value="${E.escapeHTML(id)}" ${id === proactivePace ? "selected" : ""}>${E.escapeHTML(item.label)} · ${E.escapeHTML(item.description)}</option>`)
+      .join("");
     const note = providerId === "demo"
       ? "演示模式不需要 API。它会用本地模板生成回复，适合先体验界面。"
       : providerId === "sillytavern"
@@ -120,6 +124,25 @@
               </div>
             </div>
             <button class="btn ghost" data-action="life-tick-now" style="width:100%">${E.icon("sparkles", 16)} 模拟一次三小时的离开</button>
+          </div>
+
+          <div class="section-label">主动消息</div>
+          <div class="card settings-group" style="padding:12px 14px">
+            <label style="display:flex;align-items:center;gap:9px;font-size:12px;color:var(--text)">
+              <input id="settings-proactive-enabled" type="checkbox" ${E.state.settings.proactiveEnabled !== false ? "checked" : ""} style="width:auto">
+              允许角色在合适的时候主动找你
+            </label>
+            <div class="hint" style="margin:4px 0 0 24px">角色会先看自己是不是在忙、是不是睡了，再看勿扰、最近聊天、冷却和每日上限。不会在你刚说完话时突然插进来。</div>
+            <div class="field" style="margin-top:12px">
+              <label>主动节奏</label>
+              <select id="settings-proactive-pace">${proactivePaceOptions}</select>
+            </div>
+            <label style="display:flex;align-items:center;gap:9px;font-size:12px;color:var(--text);margin-top:10px">
+              <input id="settings-proactive-use-model" type="checkbox" ${E.state.settings.proactiveUseModel ? "checked" : ""} style="width:auto">
+              主动消息使用模型生成
+            </label>
+            <div class="hint" style="margin:4px 0 0 24px">关闭时使用本地短句，不额外消耗 API；开启后会结合角色状态和最近聊天生成一句。</div>
+            <button class="btn ghost" data-action="proactive-debug" style="width:100%;margin-top:12px">${E.icon("sparkles", 16)} 查看主动消息调试</button>
           </div>
 
           <div class="section-label">模型接口</div>
@@ -227,6 +250,9 @@
     const typingDelay = document.getElementById("settings-typing-delay");
     const lifeEngine = document.getElementById("settings-life-engine");
     const lifePace = document.getElementById("settings-life-pace");
+    const proactiveEnabled = document.getElementById("settings-proactive-enabled");
+    const proactivePace = document.getElementById("settings-proactive-pace");
+    const proactiveUseModel = document.getElementById("settings-proactive-use-model");
     const dndEnabled = document.getElementById("settings-dnd-enabled");
     const dndStart = document.getElementById("settings-dnd-start");
     const dndEnd = document.getElementById("settings-dnd-end");
@@ -237,6 +263,9 @@
     if (typingDelay) E.state.settings.typingDelay = !!typingDelay.checked;
     if (lifeEngine) E.state.settings.lifeEngine = !!lifeEngine.checked;
     if (lifePace && E.LIFE_PACES[lifePace.value]) E.state.settings.lifePace = lifePace.value;
+    if (proactiveEnabled) E.state.settings.proactiveEnabled = !!proactiveEnabled.checked;
+    if (proactivePace && E.PROACTIVE_PACES[proactivePace.value]) E.state.settings.proactivePace = proactivePace.value;
+    if (proactiveUseModel) E.state.settings.proactiveUseModel = !!proactiveUseModel.checked;
     if (dndEnabled) E.state.settings.dndEnabled = !!dndEnabled.checked;
     if (dndStart && dndStart.value) E.state.settings.dndStart = dndStart.value;
     if (dndEnd && dndEnd.value) E.state.settings.dndEnd = dndEnd.value;

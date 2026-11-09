@@ -92,6 +92,71 @@ test("规范化记忆会补齐层级、标签和使用状态", () => {
   assert.equal(memory.useCount, 0);
 });
 
+test("记忆会保留知情范围和来源字段", () => {
+  const memory = E.normalizeMemory({
+    characterId: "char_a",
+    content: "用户答应周末一起去看展",
+    source: "auto",
+    scope: "group",
+    knownBy: ["char_a", "char_b"],
+    sourceChatId: "chat_group",
+    confidence: 0.72
+  });
+  assert.equal(memory.scope, "group");
+  assert.deepEqual(Array.from(memory.knownBy), ["char_a", "char_b"]);
+  assert.equal(memory.sourceChatId, "chat_group");
+  assert.equal(memory.confidence, 0.72);
+  assert.equal(E.memoryVisibleTo(memory, "char_b"), true);
+});
+
+test("群聊共享记忆可见，私聊记忆不会串到别的角色", () => {
+  E.state = {
+    settings: { memoryRecallGate: true },
+    memories: [
+      E.normalizeMemory({
+        id: "private_a",
+        characterId: "char_a",
+        content: "用户喜欢雨天",
+        scope: "private",
+        knownBy: ["char_a"]
+      }),
+      E.normalizeMemory({
+        id: "group_a",
+        characterId: "char_a",
+        content: "用户答应周末一起去看展",
+        scope: "group",
+        knownBy: ["char_a", "char_b"]
+      }),
+      E.normalizeMemory({
+        id: "private_b",
+        characterId: "char_b",
+        content: "用户怕冷",
+        scope: "private",
+        knownBy: ["char_b"]
+      })
+    ]
+  };
+  const visible = E.rankMemories("char_b", "", 10).map((memory) => memory.id).sort();
+  assert.deepEqual(visible, ["group_a", "private_b"]);
+});
+
+test("记忆合并时知情范围只会扩大", () => {
+  const existing = E.normalizeMemory({
+    id: "mem_scope",
+    characterId: "char_a",
+    content: "用户喜欢雨天",
+    scope: "group",
+    knownBy: ["char_a", "char_b"]
+  });
+  const merged = E.mergeMemoryCandidate(existing, {
+    content: "用户喜欢雨天",
+    scope: "private",
+    knownBy: ["char_a"]
+  }, 1700000000000);
+  assert.equal(merged.scope, "group");
+  assert.deepEqual(Array.from(merged.knownBy).sort(), ["char_a", "char_b"]);
+});
+
 test("记忆层级会按内容推断", () => {
   assert.equal(E.inferMemoryLayer("用户喜欢喝冰美式"), "preference");
   assert.equal(E.inferMemoryLayer("用户答应周末一起去看展"), "relationship");

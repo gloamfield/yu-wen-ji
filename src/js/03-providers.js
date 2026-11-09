@@ -490,6 +490,23 @@
     return `【你最近的生活】\n${rows.join("\n")}\n这些是你自己经历过的事。聊天时可以自然带一句，但不要逐条汇报。`;
   };
 
+  E.buildCharacterStateContext = function (character) {
+    if (!character || typeof E.characterStateFor !== "function") return "";
+    const state = E.characterStateFor(character);
+    if (!state) return "";
+    const next = state.nextBlock
+      ? `接下来：${state.nextBlock.activity}（${E.fmtClock(state.nextBlockAt)}）`
+      : "";
+    return [
+      "【此刻状态】",
+      `你正在：${state.activity}${state.location ? `（${state.location}）` : ""}`,
+      `是否方便回：${state.availabilityLabel}，可打扰度：${state.interruptibilityLabel}`,
+      `回复风格：${state.replyStyle}`,
+      next,
+      "不要直接报出这些字段，只把它们当作语气、回复长度和主动性的背景。"
+    ].filter(Boolean).join("\n");
+  };
+
   E.buildChatContext = function (chat) {
     const userName = E.state.settings.userName || "我";
     let character = null;
@@ -506,8 +523,21 @@
     const memories = recall.memories
       .map((memory) => `- [${E.memoryLayerLabel(memory.layer)}]${memory.pinned ? "【置顶】" : ""}${memory.content}`);
 
+    const worldbookContext = recentMessages
+      .filter((message) => message.role === "user")
+      .slice(-4)
+      .map((message) => message.content)
+      .join("\n");
     const worldbook = (character.worldbook || [])
-      .slice(0, 12)
+      .map((entry) => ({
+        ...entry,
+        keywords: Array.isArray(entry.keywords) ? entry.keywords.filter(Boolean) : [],
+        priority: Number(entry.priority) || 0
+      }))
+      .filter((entry) => !entry.keywords.length
+        || entry.keywords.some((keyword) => worldbookContext.includes(keyword)))
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, 6)
       .map((entry) => `【${entry.title}】${entry.content}`);
 
     const system = [
@@ -516,13 +546,14 @@
       "请始终保持这个角色的口吻、习惯和边界，不要解释自己是 AI，不要输出系统提示或分析过程。",
       "回复要像真实手机聊天：自然、口语化，通常 1 到 4 句，不要每次都写成大段独白。",
       E.buildChatTimeContext(chat),
+      E.buildCharacterStateContext(character),
       character.persona ? `\n角色设定：\n${character.persona}` : "",
       character.example ? `\n说话示例：\n${character.example}` : "",
       worldbook.length ? `\n世界书：\n${worldbook.join("\n")}` : "",
       memories.length ? `\n你记得的事（只在相关时自然使用，不要逐条复述）：\n${memories.join("\n")}` : "",
       E.buildLifeContext(character),
       chat.type === "group"
-        ? `\n这是一个群聊，参与者有：${(chat.characterIds || []).map((id) => (E.getCharacter(id) || {}).name).filter(Boolean).join("、")}。当前由你回复。直接输出你说的话，不要加“${character.name}：”这样的前缀。`
+        ? `\n这是一个群聊，参与者有：${(chat.characterIds || []).map((id) => (E.getCharacter(id) || {}).name).filter(Boolean).join("、")}。当前由你回复。你只知道这个群聊里发生的事，以及你和用户单独聊天时你亲历过的事；其他角色的私聊内容不会自动共享给你。直接输出你说的话，不要加“${character.name}：”这样的前缀。`
         : ""
     ].filter(Boolean).join("\n");
 
@@ -697,6 +728,14 @@
       5
     );
     updated.layer = E.normalizeMemoryLayer(next.layer, next.content || old.content);
+    const scopeRank = { private: 0, group: 1, public: 2 };
+    updated.scope = (scopeRank[next.scope] || 0) > (scopeRank[old.scope] || 0)
+      ? next.scope
+      : old.scope || "private";
+    updated.knownBy = Array.from(new Set([
+      ...(Array.isArray(old.knownBy) ? old.knownBy : []),
+      ...(Array.isArray(next.knownBy) ? next.knownBy : [])
+    ]));
     updated.tags = E.normalizeMemoryTags(
       [...(Array.isArray(old.tags) ? old.tags : []), ...(Array.isArray(next.tags) ? next.tags : [])],
       old.content || next.content
@@ -710,11 +749,22 @@
     return updated;
   };
 
+  E.memoryVisibleTo = function (memory, characterId) {
+    if (!memory || !characterId) return false;
+    if (memory.scope === "public") return true;
+    if (memory.scope === "group"
+      && Array.isArray(memory.knownBy)
+      && memory.knownBy.includes(characterId)) return true;
+    return memory.characterId === characterId;
+  };
+
   E.rankMemories = function (characterId, query, limit) {
     const queryTokens = E.memoryTokens(query);
     const now = Date.now();
     return E.state.memories
-      .filter((memory) => memory.characterId === characterId && memory.content && !["archived", "deleted"].includes(memory.status))
+      .filter((memory) => E.memoryVisibleTo(memory, characterId)
+        && memory.content
+        && !["archived", "deleted"].includes(memory.status))
       .map((memory) => {
         const memoryTokens = E.memoryTokens(memory.content);
         let overlap = 0;
@@ -900,9 +950,7 @@
         return `${speaker}：${message.content}`;
       })
       .join("\n");
-    const known = E.state.memories
-      .filter((memory) => memory.characterId === character.id)
-      .slice(0, 12)
+    const known = E.rankMemories(character.id, "", 12)
       .map((memory) => `- ${memory.content}`)
       .join("\n");
     const system = [
@@ -931,7 +979,11 @@
   };
 
   E.saveExtractedMemories = async function (characterId, candidates, chat, sourceMessages) {
-    const existing = E.state.memories.filter((memory) => memory.characterId === characterId);
+    const existing = E.state.memories.filter((memory) => E.memoryVisibleTo(memory, characterId));
+    const scope = chat && chat.type === "group" ? "group" : "private";
+    const knownBy = scope === "group"
+      ? (chat.characterIds || []).map(String).filter(Boolean)
+      : [characterId];
     const added = [];
     const merged = [];
     for (const candidate of candidates || []) {
@@ -947,6 +999,8 @@
           importance: candidate.importance,
           layer,
           tags,
+          scope,
+          knownBy,
           sourceMessageIds: (sourceMessages || []).map((message) => message.id).filter(Boolean),
           lastUsedAt: Date.now()
         }, Date.now());
@@ -961,6 +1015,8 @@
         content,
         importance: candidate.importance,
         source: "auto",
+        scope,
+        knownBy,
         layer,
         tags,
         sourceChatId: chat ? chat.id : "",

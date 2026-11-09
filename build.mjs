@@ -17,6 +17,8 @@ const jsFiles = [
   "01b-themes.js",
   "02-state.js",
   "02b-life-engine.js",
+  "02c-life-state.js",
+  "02d-proactive.js",
   "03-providers.js",
   "04-shell.js",
   "05-contacts.js",

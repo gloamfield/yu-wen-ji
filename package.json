@@ -1,14 +1,14 @@
 {
   "name": "ember-phone",
-  "version": "0.6.1",
+  "version": "0.8.0",
   "private": true,
   "description": "余温机 · 免费开源的单文件 AI 小手机",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node --check src/js/01-core.js && node --check src/js/02-state.js && node --check src/js/02b-life-engine.js && node --check src/js/03-providers.js && node --check src/js/04-shell.js && node --check src/js/05-contacts.js && node --check src/js/06-chat.js && node --check src/js/07-social.js && node --check src/js/08-life.js && node --check src/js/09-settings.js && node --check src/js/10-boot.js && node --check tests/mock-provider.mjs && node --check serve.mjs",
-    "test": "node --test tests/memory.test.mjs tests/chat-segments.test.mjs tests/life-engine.test.mjs tests/provider-models.test.mjs",
+    "check": "node --check src/js/01-core.js && node --check src/js/02-state.js && node --check src/js/02b-life-engine.js && node --check src/js/02c-life-state.js && node --check src/js/02d-proactive.js && node --check src/js/03-providers.js && node --check src/js/04-shell.js && node --check src/js/05-contacts.js && node --check src/js/06-chat.js && node --check src/js/07-social.js && node --check src/js/08-life.js && node --check src/js/09-settings.js && node --check src/js/10-boot.js && node --check tests/mock-provider.mjs && node --check serve.mjs",
+    "test": "node --test tests/memory.test.mjs tests/chat-segments.test.mjs tests/life-engine.test.mjs tests/proactive.test.mjs tests/provider-models.test.mjs",
     "serve": "node serve.mjs"
   }
 }

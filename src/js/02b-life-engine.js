@@ -148,6 +148,56 @@
       .replaceAll("{relation}", character.relationship || "熟悉");
   }
 
+  function normalizeProactiveIntent(raw) {
+    const item = raw && typeof raw === "object" ? raw : {};
+    const dueAt = Number(item.dueAt) || Date.now();
+    const status = ["pending", "sending", "sent", "skipped", "expired"].includes(item.status)
+      ? item.status
+      : "pending";
+    return {
+      id: String(item.id || E.uid("intent")),
+      characterId: String(item.characterId || ""),
+      dueAt,
+      reason: ["silence", "memory", "promise", "event", "care"].includes(item.reason)
+        ? item.reason
+        : "silence",
+      urgency: E.clamp(Number(item.urgency) || 0.45, 0, 1),
+      expiresAt: Number(item.expiresAt) || dueAt + 2 * HOUR,
+      channel: ["chat", "notification", "call", "moment"].includes(item.channel)
+        ? item.channel
+        : "chat",
+      status,
+      sourceEventId: String(item.sourceEventId || ""),
+      createdAt: Number(item.createdAt) || Date.now(),
+      sentAt: Number(item.sentAt) || 0,
+      lastEvaluatedAt: Number(item.lastEvaluatedAt) || 0,
+      suppressedBy: String(item.suppressedBy || ""),
+      nextEligibleAt: Number(item.nextEligibleAt) || 0,
+      score: Number(item.score) || 0
+    };
+  }
+
+  function normalizeProactiveState(raw) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const result = {};
+    for (const [characterId, item] of Object.entries(source)) {
+      if (!characterId || !item || typeof item !== "object") continue;
+      result[characterId] = {
+        dayKey: String(item.dayKey || ""),
+        count: Math.max(0, Number(item.count) || 0),
+        lastSentAt: Math.max(0, Number(item.lastSentAt) || 0),
+        lastReason: String(item.lastReason || ""),
+        lastSuppressedBy: String(item.lastSuppressedBy || ""),
+        lastEvaluatedAt: Math.max(0, Number(item.lastEvaluatedAt) || 0),
+        nextEligibleAt: Math.max(0, Number(item.nextEligibleAt) || 0)
+      };
+    }
+    return result;
+  }
+
+  E.normalizeProactiveIntent = normalizeProactiveIntent;
+  E.normalizeProactiveState = normalizeProactiveState;
+
   E.normalizeLifeState = function (raw) {
     const source = raw && typeof raw === "object" ? raw : {};
     const batch = Array.isArray(source.batch)
@@ -177,12 +227,21 @@
       todayCount: Math.max(0, Number(source.todayCount) || 0),
       lastSettledAt: Math.max(0, Number(source.lastSettledAt) || 0),
       batch,
-      recentKeys: Array.isArray(source.recentKeys) ? source.recentKeys.map(String).slice(-80) : []
+      recentKeys: Array.isArray(source.recentKeys) ? source.recentKeys.map(String).slice(-80) : [],
+      intents: Array.isArray(source.intents)
+        ? source.intents
+          .map(normalizeProactiveIntent)
+          .filter((intent) => intent.characterId)
+          .slice(-24)
+        : [],
+      proactive: normalizeProactiveState(source.proactive)
     };
   };
 
   E.saveLifeState = async function () {
-    E.state.life = E.normalizeLifeState(E.state.life);
+    if (!E.state.life || typeof E.state.life !== "object") {
+      E.state.life = E.normalizeLifeState(null);
+    }
     await E.db.setMeta("lifeState", E.state.life);
   };
 
@@ -209,11 +268,19 @@
       return `${Math.max(1, Math.round(value / DAY))} 天`;
     },
 
-    chooseType(character, timestamp, seed, quiet) {
+    chooseType(character, timestamp, seed, quiet, state) {
       const hour = new Date(timestamp).getHours();
       const roll = hashString(`${seed}:${character.id}:${hour}`) % 100;
       if (quiet) {
         return roll < 60 ? "diary" : "moment";
+      }
+      if (state && state.availability === "sleeping") {
+        return roll < 72 ? "diary" : "moment";
+      }
+      if (state && state.interruptibility === "low") {
+        if (roll < 66) return "diary";
+        if (roll < 92) return "moment";
+        return "message";
       }
       if (hour >= 23 || hour < 6) {
         return roll < 62 ? "diary" : "moment";
@@ -239,7 +306,7 @@
       return "diary";
     },
 
-    buildEvent(type, character, timestamp, seed, chats) {
+    buildEvent(type, character, timestamp, seed, chats, state) {
       const base = {
         id: `life_${hashString(seed).toString(36)}`,
         key: `${type}:${character.id}:${hourKey(timestamp)}`,
@@ -257,27 +324,35 @@
       if (type === "moment") {
         base.text = renderLine(pick(MOMENT_LINES, seed), character);
         base.route = "#/moments";
-        base.reason = new Date(timestamp).getHours() >= 23 || new Date(timestamp).getHours() < 6
-          ? "夜里没有睡，忽然想发点什么"
-          : "路过一个熟悉的场景";
+        base.reason = state
+          ? `${state.activity}的时候，忽然想发点什么`
+          : new Date(timestamp).getHours() >= 23 || new Date(timestamp).getHours() < 6
+            ? "夜里没有睡，忽然想发点什么"
+            : "路过一个熟悉的场景";
       } else if (type === "diary") {
         const diary = pick(DIARY_LINES, seed);
         base.title = diary.title;
         base.text = diary.content;
         base.mood = diary.mood;
         base.route = "#/diary";
-        base.reason = new Date(timestamp).getHours() >= 23 || new Date(timestamp).getHours() < 6
-          ? "夜深了，想把没说完的话收起来"
-          : "今天有一件小事值得记下来";
+        base.reason = state
+          ? `${state.activity}之后，想把今天收起来`
+          : new Date(timestamp).getHours() >= 23 || new Date(timestamp).getHours() < 6
+            ? "夜深了，想把没说完的话收起来"
+            : "今天有一件小事值得记下来";
       } else if (type === "call") {
         base.text = pick(CALL_LINES, seed);
         base.route = "#/calls";
-        base.reason = "有话想说，拨出去又挂了";
+        base.reason = state
+          ? `忙完${state.activity}，想听听你的声音`
+          : "有话想说，拨出去又挂了";
       } else {
         base.text = pick(MESSAGE_LINES, seed);
         const chat = (chats || []).find((item) => item.type === "direct" && item.characterIds && item.characterIds[0] === character.id);
         base.route = chat ? `#/chat/${chat.id}` : "#/chat";
-        base.reason = "突然想起你";
+        base.reason = state
+          ? `${state.activity}的间隙，忽然想起你`
+          : "突然想起你";
       }
       return base;
     },
@@ -318,8 +393,11 @@
         const character = characters[hashString(seed) % characters.length];
         const eventTime = now - span + Math.round((span * (slot + 1)) / (wanted + 1));
         const quiet = E.lifeEngine.inDndWindow(eventTime, opts.dnd);
-        const type = E.lifeEngine.chooseType(character, eventTime, seed, quiet);
-        const event = E.lifeEngine.buildEvent(type, character, eventTime, seed, opts.chats || []);
+        const state = typeof E.characterStateFor === "function"
+          ? E.characterStateFor(character, eventTime)
+          : null;
+        const type = E.lifeEngine.chooseType(character, eventTime, seed, quiet, state);
+        const event = E.lifeEngine.buildEvent(type, character, eventTime, seed, opts.chats || [], state);
         if (existing.has(event.key)) continue;
         event.silent = quiet;
         event.reason = quiet

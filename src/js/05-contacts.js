@@ -3,6 +3,39 @@
 
   const E = window.Ember;
 
+  function proactiveModeOptions() {
+    return [
+      { value: "inherit", label: "跟随全局" },
+      { value: "off", label: "关闭" },
+      { value: "quiet", label: "安静" },
+      { value: "normal", label: "正常" },
+      { value: "lively", label: "热闹" }
+    ];
+  }
+
+  function parseWorldbookKeywords(value) {
+    return Array.from(new Set(
+      String(value || "")
+        .split(/[,，、;；\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )).slice(0, 12);
+  }
+
+  function memoryScopeLabel(scope) {
+    if (scope === "group") return "群聊共享";
+    if (scope === "public") return "所有角色可见";
+    return "仅本人知情";
+  }
+
+  function memoryKnownNames(memory) {
+    const ids = Array.isArray(memory && memory.knownBy) ? memory.knownBy : [];
+    return ids
+      .map((id) => E.getCharacter(id))
+      .filter(Boolean)
+      .map((character) => character.name);
+  }
+
   E.renderContactsHTML = function () {
     const characters = E.state.characters.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "zh"));
     return `
@@ -91,8 +124,11 @@
     const character = E.getCharacter(characterId);
     if (!character) return `<div class="app-page">${E.appHeaderHTML("角色")}<div class="app-body">${E.emptyState("contacts", "角色不存在", "这个角色可能已经被删除了。")}</div></div>`;
     const tab = E.state.characterTab || "persona";
+    const state = E.characterStateFor(character);
     const memories = E.state.memories
-      .filter((item) => item.characterId === character.id)
+      .filter((item) => typeof E.memoryVisibleTo === "function"
+        ? E.memoryVisibleTo(item, character.id)
+        : item.characterId === character.id)
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.updatedAt || b.createdAt) - Number(a.updatedAt || a.createdAt));
     const worldbook = character.worldbook || [];
     let tabBody = "";
@@ -108,6 +144,7 @@
           <div class="entry-row">
             <div class="entry-title">${E.escapeHTML(entry.title || "设定")}</div>
             <div class="entry-text">${E.escapeHTML(entry.content || "")}</div>
+            ${Array.isArray(entry.keywords) && entry.keywords.length ? `<div class="entry-actions"><span class="muted tiny">触发词：${entry.keywords.map(E.escapeHTML).join(" / ")}</span></div>` : ""}
             <div class="entry-actions">
               <button class="icon-btn" data-action="delete-worldbook" data-id="${E.escapeHTML(character.id)}" data-entry="${E.escapeHTML(entry.id)}" aria-label="删除">${E.icon("trash", 15)}</button>
             </div>
@@ -126,15 +163,17 @@
               <span class="row" style="gap:4px;flex-wrap:wrap">
                 <span class="pill">${E.escapeHTML(E.memoryLayerLabel(memory.layer))}</span>
                 <span class="pill">${E.escapeHTML(E.memorySourceLabel(memory))}</span>
+                <span class="pill">${E.escapeHTML(E.memoryScopeLabel(memory.scope))}</span>
               </span>
               <div class="row" style="gap:0">
+                <button class="icon-btn" data-action="edit-memory" data-id="${E.escapeHTML(memory.id)}" aria-label="编辑">${E.icon("edit", 15)}</button>
                 <button class="icon-btn" data-action="toggle-memory-pin" data-id="${E.escapeHTML(memory.id)}" aria-label="${memory.pinned ? "取消置顶" : "置顶"}">${E.icon("pin", 15)}</button>
                 <button class="icon-btn" data-action="delete-memory" data-id="${E.escapeHTML(memory.id)}" aria-label="删除">${E.icon("trash", 15)}</button>
               </div>
             </div>
             <div class="entry-text" style="margin-top:0">${E.escapeHTML(memory.content || "")}</div>
             <div class="entry-actions">
-              <span class="muted tiny" style="margin-right:auto">重要度 ${Number(memory.importance || 1)} · ${E.fmtRelative(memory.updatedAt || memory.createdAt)}${memory.pinned ? " · 已置顶" : ""}${Array.isArray(memory.tags) && memory.tags.length ? ` · ${memory.tags.map((tag) => E.escapeHTML(tag)).join(" / ")}` : ""}</span>
+              <span class="muted tiny" style="margin-right:auto">来源 ${E.escapeHTML(E.memorySourceDetail(memory))} · 重要度 ${Number(memory.importance || 1)} · ${E.fmtRelative(memory.updatedAt || memory.createdAt)}${memory.pinned ? " · 已置顶" : ""}${Array.isArray(memory.tags) && memory.tags.length ? ` · ${memory.tags.map((tag) => E.escapeHTML(tag)).join(" / ")}` : ""}</span>
             </div>
           </div>
         `).join("") : E.emptyState("memory", "还没有记忆", "聊天里值得留下的事，可以手动记在这里。")}
@@ -153,12 +192,25 @@
           <div class="profile-hero">
             ${E.avatar(character, "lg")}
             <div class="profile-name">${E.escapeHTML(character.name)}</div>
-            <div class="profile-sub">${E.escapeHTML(character.relationship || "朋友")}${character.tags && character.tags.length ? ` · ${character.tags.map(E.escapeHTML).join(" / ")}` : ""}</div>
+            <div class="profile-sub">${E.escapeHTML(character.relationship || "朋友")}${character.tags && character.tags.length ? ` · ${character.tags.map(E.escapeHTML).join(" / ")}` : ""} · 主动消息 ${E.escapeHTML(E.proactiveModeLabel(character.proactiveMode))}</div>
             <div class="profile-actions">
               <button class="btn" data-action="start-chat" data-id="${E.escapeHTML(character.id)}">${E.icon("chat", 16)} 聊天</button>
               <button class="btn ghost" data-action="export-character" data-id="${E.escapeHTML(character.id)}">${E.icon("download", 16)} 导出</button>
             </div>
           </div>
+          ${state ? `
+            <div class="character-state-card">
+              <span class="character-state-dot ${E.escapeHTML(state.availability)}"></span>
+              <div class="grow">
+                <div class="character-state-title">${E.escapeHTML(state.statusLine)}</div>
+                <div class="character-state-sub">${E.escapeHTML(state.location)} · 精力 ${state.energy}% · ${E.escapeHTML(state.replyStyle)}</div>
+              </div>
+              <div class="character-state-side">
+                <div>${state.nextBlock ? `接下来 ${E.fmtClock(state.nextBlockAt)} ${E.escapeHTML(state.nextBlock.activity)}` : ""}</div>
+                <button class="text-btn" data-action="proactive-debug" data-id="${E.escapeHTML(character.id)}">为什么</button>
+              </div>
+            </div>
+          ` : ""}
           <div class="tabs">
             <button class="tab ${tab === "persona" ? "active" : ""}" data-action="character-tab" data-tab="persona">人设</button>
             <button class="tab ${tab === "worldbook" ? "active" : ""}" data-action="character-tab" data-tab="worldbook">世界书</button>
@@ -193,15 +245,17 @@
                   <span class="row" style="gap:4px;flex-wrap:wrap">
                     <span class="pill">${E.escapeHTML(E.memoryLayerLabel(memory.layer))}</span>
                     <span class="pill">${E.escapeHTML(E.memorySourceLabel(memory))}</span>
+                    <span class="pill">${E.escapeHTML(E.memoryScopeLabel(memory.scope))}</span>
                   </span>
                   <div class="row" style="gap:0">
+                    <button class="icon-btn" data-action="edit-memory" data-id="${E.escapeHTML(memory.id)}" aria-label="编辑">${E.icon("edit", 15)}</button>
                     <button class="icon-btn" data-action="toggle-memory-pin" data-id="${E.escapeHTML(memory.id)}" aria-label="${memory.pinned ? "取消置顶" : "置顶"}">${E.icon("pin", 15)}</button>
                     <button class="icon-btn" data-action="delete-memory" data-id="${E.escapeHTML(memory.id)}" aria-label="删除">${E.icon("trash", 15)}</button>
                   </div>
                 </div>
                 <div class="entry-text" style="margin-top:0">${E.escapeHTML(memory.content)}</div>
                 <div class="entry-actions">
-                  <span class="muted tiny" style="margin-right:auto">重要度 ${Number(memory.importance || 1)} · ${E.fmtRelative(memory.updatedAt || memory.createdAt)}${memory.pinned ? " · 已置顶" : ""}${Array.isArray(memory.tags) && memory.tags.length ? ` · ${memory.tags.map((tag) => E.escapeHTML(tag)).join(" / ")}` : ""}</span>
+                  <span class="muted tiny" style="margin-right:auto">来源 ${E.escapeHTML(E.memorySourceDetail(memory))} · 重要度 ${Number(memory.importance || 1)} · ${E.fmtRelative(memory.updatedAt || memory.createdAt)}${memory.pinned ? " · 已置顶" : ""}${Array.isArray(memory.tags) && memory.tags.length ? ` · ${memory.tags.map((tag) => E.escapeHTML(tag)).join(" / ")}` : ""}</span>
                 </div>
               </div>
             `).join("")}
@@ -218,6 +272,25 @@
     return "手动添加";
   };
 
+  E.memoryScopeLabel = memoryScopeLabel;
+
+  E.memorySourceDetail = function (memory) {
+    if (!memory) return "记忆";
+    const names = memoryKnownNames(memory);
+    const scope = memory.scope === "group"
+      ? `群聊共享${names.length ? `（${names.join("、")}）` : ""}`
+      : memory.scope === "public"
+        ? "所有角色可见"
+        : names.length ? `仅${names.join("、")}知情` : "仅本人知情";
+    const parts = [E.memorySourceLabel(memory), scope];
+    const chat = memory.sourceChatId ? E.getChat(memory.sourceChatId) : null;
+    if (chat) parts.push(`来自「${E.chatTitle(chat)}」`);
+    if (Number(memory.confidence) && Number(memory.confidence) < 0.9) {
+      parts.push(`可信度 ${Math.round(Number(memory.confidence) * 100)}%`);
+    }
+    return parts.join(" · ");
+  };
+
   E.addCharacterFlow = function () {
     E.formSheet({
       title: "新增角色",
@@ -226,7 +299,8 @@
         { name: "relationship", label: "关系", value: "朋友", placeholder: "朋友 / 暧昧 / 旧友" },
         { name: "persona", label: "人设", type: "textarea", placeholder: "年龄、性格、习惯、说话方式……" },
         { name: "greeting", label: "第一句话", type: "textarea", placeholder: "打开聊天时，她说的第一句话。" },
-        { name: "color", label: "主题色", type: "color", value: "#c87f8a" }
+        { name: "color", label: "主题色", type: "color", value: "#c87f8a" },
+        { name: "proactiveMode", label: "主动消息", type: "select", value: "inherit", options: proactiveModeOptions(), hint: "跟随全局会使用设置里的主动节奏；关闭后这个角色不会主动发消息。" }
       ],
       submitLabel: "创建角色",
       onSubmit: async (values) => {
@@ -236,6 +310,7 @@
           persona: values.persona.trim(),
           greeting: values.greeting.trim(),
           color: values.color,
+          proactiveMode: values.proactiveMode,
           worldbook: []
         });
         E.state.characters.push(character);
@@ -256,7 +331,8 @@
         { name: "relationship", label: "关系", value: character.relationship || "朋友" },
         { name: "persona", label: "人设", type: "textarea", value: character.persona || "" },
         { name: "greeting", label: "第一句话", type: "textarea", value: character.greeting || "" },
-        { name: "color", label: "主题色", type: "color", value: character.color || "#c87f8a" }
+        { name: "color", label: "主题色", type: "color", value: character.color || "#c87f8a" },
+        { name: "proactiveMode", label: "主动消息", type: "select", value: character.proactiveMode || "inherit", options: proactiveModeOptions(), hint: "这个设置只影响主动消息，不会影响你主动找她时的回复。" }
       ],
       submitLabel: "保存",
       onSubmit: async (values) => {
@@ -265,6 +341,7 @@
         character.persona = values.persona.trim();
         character.greeting = values.greeting.trim();
         character.color = values.color || character.color;
+        character.proactiveMode = values.proactiveMode || "inherit";
         await E.db.put("characters", character);
         E.toast("已保存");
         E.renderRoute();
@@ -313,6 +390,56 @@
     });
   };
 
+  E.proactiveDebugFlow = function (characterId) {
+    const rows = E.proactiveEngine.debugSnapshot(characterId);
+    if (!rows.length) {
+      E.toast("还没有可调试的角色");
+      return;
+    }
+    const body = `
+      <div class="proactive-debug-intro">
+        主动消息会先排队，再经过勿扰、当前状态、最近聊天、冷却和每日上限几道门。这里显示的是角色此刻为什么发、或者为什么还没发。
+      </div>
+      ${rows.map((row) => {
+        const state = row.state;
+        const pending = row.pending;
+        const evaluation = row.evaluation;
+        const suppressed = evaluation && evaluation.suppressedBy
+          ? E.proactiveEngine.suppressLabel(evaluation.suppressedBy)
+          : "没有待评估意图";
+        const nextAt = row.nextEligibleAt ? E.fmtDateTime(row.nextEligibleAt) : "没有限制";
+        return `
+          <div class="proactive-debug-card">
+            <div class="row-between" style="align-items:flex-start;gap:10px">
+              <div>
+                <div class="proactive-debug-name">${E.escapeHTML(row.character.name)}</div>
+                <div class="muted tiny">${E.escapeHTML(row.modeLabel)} · ${row.enabled ? "已启用" : "已关闭"}${row.pace ? ` · 每天最多 ${row.dailyCap} 次` : ""}</div>
+              </div>
+              <span class="character-state-dot ${E.escapeHTML(state ? state.availability : "busy")}"></span>
+            </div>
+            <div class="proactive-debug-grid">
+              <span>此刻</span><b>${E.escapeHTML(state ? state.statusLine : "状态未知")}</b>
+              <span>地点</span><b>${E.escapeHTML(state ? state.location : "未知")}</b>
+              <span>可打扰度</span><b>${E.escapeHTML(state ? state.interruptibilityLabel : "未知")}</b>
+              <span>今日已发</span><b>${row.todayCount}${row.dailyCap ? ` / ${row.dailyCap}` : ""}</b>
+              <span>上次主动</span><b>${row.lastSentAt ? E.fmtRelative(row.lastSentAt) : "还没有"}</b>
+              <span>上次原因</span><b>${row.lastReason ? E.escapeHTML(E.proactiveEngine.reasonLabel(row.lastReason)) : "还没有"}</b>
+              <span>待发意图</span><b>${pending ? `${E.fmtDateTime(pending.dueAt)} · ${E.escapeHTML(E.proactiveEngine.reasonLabel(pending.reason))}` : "暂无"}</b>
+              <span>当前门控</span><b>${E.escapeHTML(suppressed)}</b>
+              <span>下次可评估</span><b>${E.escapeHTML(nextAt)}</b>
+            </div>
+          </div>
+        `;
+      }).join("")}
+      <div class="sheet-actions" style="margin-top:12px">
+        <button class="btn ghost" type="button" data-sheet-close>关闭</button>
+        <button class="btn" type="button" data-action="proactive-tick-now" ${characterId ? `data-id="${E.escapeHTML(characterId)}"` : ""}>${E.icon("refresh", 15)} 现在评估一次</button>
+      </div>
+      ${characterId ? `<button class="btn ghost" type="button" data-action="proactive-clear-intent" data-id="${E.escapeHTML(characterId)}" style="width:100%;margin-top:8px">清空这个角色的待发意图</button>` : ""}
+    `;
+    E.openSheet({ title: "主动消息调试", body });
+  };
+
   E.deleteCharacterFlow = async function (id) {
     const character = E.getCharacter(id);
     if (!character) return;
@@ -342,11 +469,19 @@
       title: "添加世界书",
       fields: [
         { name: "title", label: "标题", placeholder: "例如：常去的店" },
+        { name: "keywords", label: "触发词", placeholder: "用逗号分隔，例如：书店, 留白, 下雨", hint: "留空时这条设定会常驻；填写后只在最近对话出现这些词时加入提示词。" },
+        { name: "priority", label: "优先级", type: "number", value: 0, step: "1", hint: "数字越大越优先，最多加入 6 条世界书。" },
         { name: "content", label: "内容", type: "textarea", required: true, placeholder: "这个地方、习惯或秘密……" }
       ],
       onSubmit: async (values) => {
         character.worldbook = character.worldbook || [];
-        character.worldbook.push({ id: E.uid("wb"), title: values.title.trim() || "设定", content: values.content.trim() });
+        character.worldbook.push({
+          id: E.uid("wb"),
+          title: values.title.trim() || "设定",
+          content: values.content.trim(),
+          keywords: parseWorldbookKeywords(values.keywords),
+          priority: Number(values.priority) || 0
+        });
         await E.db.put("characters", character);
         E.toast("世界书已更新");
         E.renderRoute();
@@ -382,29 +517,102 @@
       { name: "content", label: "记忆内容", type: "textarea", required: true, placeholder: "她应该记住什么？" },
       { name: "layer", label: "记忆层级", type: "select", options: [{ value: "", label: "自动判断" }, ...Object.entries(E.MEMORY_LAYERS).map(([value, item]) => ({ value, label: item.label }))] },
       { name: "importance", label: "重要度 1–5", type: "number", value: 3, step: "1" },
-      { name: "pinned", label: "置顶这条记忆", type: "checkbox", value: false }
+      { name: "pinned", label: "置顶这条记忆", type: "checkbox", value: false },
+      { name: "scope", label: "知情范围", type: "select", value: "private", options: [
+        { value: "private", label: "仅角色本人" },
+        { value: "group", label: "群聊共享" },
+        { value: "public", label: "所有角色可见" }
+      ], hint: "私聊记忆默认只属于这个角色；群聊共享会出现在群成员的共同记忆里。" }
     );
     E.formSheet({
       title: "添加记忆",
       fields,
       onSubmit: async (values) => {
+        const ownerId = characterId || values.characterId;
+        const scope = values.scope || "private";
+        const knownBy = scope === "private"
+          ? [ownerId]
+          : E.state.characters.map((character) => character.id);
         const memory = E.normalizeMemory({
           id: E.uid("mem"),
-          characterId: characterId || values.characterId,
+          characterId: ownerId,
           content: values.content.trim(),
           importance: E.clamp(Number(values.importance) || 3, 1, 5),
           pinned: !!values.pinned,
           source: "manual",
+          scope,
+          knownBy,
           layer: values.layer,
           tags: [],
           sourceChatId: "",
           sourceMessageIds: [],
+          confidence: 1,
+          lastConfirmedAt: Date.now(),
           createdAt: Date.now(),
           updatedAt: Date.now()
         });
         E.state.memories.push(memory);
         await E.db.put("memories", memory);
         E.toast("记忆已添加");
+        E.renderRoute();
+      }
+    });
+  };
+
+  E.editMemoryFlow = function (id) {
+    const memory = E.state.memories.find((item) => item.id === id);
+    if (!memory) return;
+    const selected = Array.isArray(memory.knownBy) && memory.knownBy.length
+      ? memory.knownBy
+      : [memory.characterId];
+    const knownByFields = E.state.characters.map((character) => ({
+      name: `known_${character.id}`,
+      label: character.name,
+      type: "checkbox",
+      value: selected.includes(character.id)
+    }));
+    E.formSheet({
+      title: "编辑记忆",
+      fields: [
+        { name: "content", label: "记忆内容", type: "textarea", required: true, value: memory.content },
+        { name: "layer", label: "记忆层级", type: "select", value: memory.layer, options: Object.entries(E.MEMORY_LAYERS).map(([value, item]) => ({ value, label: item.label })) },
+        { name: "importance", label: "重要度 1–5", type: "number", value: memory.importance, step: "1" },
+        { name: "pinned", label: "置顶这条记忆", type: "checkbox", value: !!memory.pinned },
+        { name: "scope", label: "知情范围", type: "select", value: memory.scope || "private", options: [
+          { value: "private", label: "仅角色本人" },
+          { value: "group", label: "群聊共享" },
+          { value: "public", label: "所有角色可见" }
+        ], hint: "私聊只让这个角色知道；群聊共享会让群成员都带着这条记忆。" },
+        ...knownByFields
+      ],
+      submitLabel: "保存记忆",
+      onSubmit: async (values) => {
+        const scope = values.scope || "private";
+        const checked = E.state.characters
+          .filter((character) => values[`known_${character.id}`])
+          .map((character) => character.id);
+        const knownBy = scope === "private"
+          ? [memory.characterId]
+          : checked.length
+            ? checked
+            : scope === "public"
+              ? E.state.characters.map((character) => character.id)
+              : (Array.isArray(memory.knownBy) && memory.knownBy.length ? memory.knownBy : [memory.characterId]);
+        const updated = E.normalizeMemory({
+          ...memory,
+          content: values.content.trim(),
+          layer: values.layer,
+          importance: E.clamp(Number(values.importance) || 3, 1, 5),
+          pinned: !!values.pinned,
+          scope,
+          knownBy,
+          confidence: 1,
+          lastConfirmedAt: Date.now(),
+          updatedAt: Date.now()
+        });
+        Object.assign(memory, updated);
+        await E.db.put("memories", memory);
+        E.toast("记忆已更新");
         E.renderRoute();
       }
     });

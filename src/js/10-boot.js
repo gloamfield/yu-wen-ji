@@ -2,6 +2,7 @@
   "use strict";
 
   const E = window.Ember;
+  let proactiveTicker = null;
 
   async function handleAction(action, el) {
     const id = el.dataset.id || "";
@@ -37,6 +38,9 @@
       case "character-menu":
         E.characterMenuFlow(id);
         break;
+      case "proactive-debug":
+        E.proactiveDebugFlow(id);
+        break;
       case "export-character": {
         const character = E.getCharacter(id);
         if (character) {
@@ -60,6 +64,9 @@
         break;
       case "add-memory":
         E.addMemoryFlow(id);
+        break;
+      case "edit-memory":
+        E.editMemoryFlow(id);
         break;
       case "delete-memory":
         await E.deleteMemory(id);
@@ -225,6 +232,18 @@
         E.closeSheet();
         if (E.parseRoute().name === "settings") E.renderRoute();
         break;
+      case "proactive-tick-now": {
+        const result = await E.proactiveEngine.tick(Date.now(), id ? { characterId: id } : undefined);
+        E.closeSheet();
+        E.toast(result.sent ? "已经发出一条主动消息" : "暂时没有适合发送的主动消息");
+        if (E.parseRoute().name === "settings") E.renderRoute();
+        break;
+      }
+      case "proactive-clear-intent":
+        await E.proactiveEngine.clearPending(id);
+        E.closeSheet();
+        E.toast("已清空待发意图");
+        break;
       default:
         break;
     }
@@ -307,16 +326,18 @@
     }
 
     document.addEventListener("visibilitychange", () => {
-      if (!E.lifeEngine) return;
       if (document.hidden) {
-        void E.lifeEngine.onHidden();
+        if (E.lifeEngine) void E.lifeEngine.onHidden();
+        if (E.proactiveEngine) void E.proactiveEngine.onHidden();
       } else {
-        void E.lifeEngine.onVisible();
+        if (E.lifeEngine) void E.lifeEngine.onVisible();
+        if (E.proactiveEngine) void E.proactiveEngine.onVisible();
       }
     });
 
     window.addEventListener("beforeunload", () => {
       if (E.lifeEngine) void E.lifeEngine.onHidden();
+      if (E.proactiveEngine) void E.proactiveEngine.onHidden();
     });
   }
 
@@ -333,10 +354,19 @@
     } catch (error) {
       console.warn("生活事件结算失败", error);
     }
+    try {
+      await E.proactiveEngine.onBoot();
+    } catch (error) {
+      console.warn("主动消息初始化失败", error);
+    }
     E.state.locked = true;
     E.renderShell();
     bindGlobalEvents();
     setInterval(E.updateClock, 30000);
+    if (proactiveTicker) clearInterval(proactiveTicker);
+    proactiveTicker = setInterval(() => {
+      if (!document.hidden) void E.proactiveEngine.tick();
+    }, 45000);
     setTimeout(() => {
       if (E.state.locked) {
         const hint = document.querySelector(".unlock-hint");

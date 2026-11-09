@@ -4,7 +4,7 @@
   const E = window.Ember = window.Ember || {};
 
   E.APP_NAME = "余温机";
-  E.VERSION = "0.6.1";
+  E.VERSION = "0.8.0";
   E.STORES = [
     "characters",
     "chats",
@@ -467,6 +467,9 @@
 
   E.normalizeCharacter = function (character) {
     const c = character || {};
+    const proactiveMode = ["inherit", "off", "quiet", "normal", "lively"].includes(c.proactiveMode)
+      ? c.proactiveMode
+      : "inherit";
     return {
       id: c.id || E.uid("char"),
       name: String(c.name || "未命名角色"),
@@ -478,6 +481,7 @@
       avatar: String(c.avatar || ""),
       tags: Array.isArray(c.tags) ? c.tags : [],
       worldbook: Array.isArray(c.worldbook) ? c.worldbook : [],
+      proactiveMode,
       createdAt: Number(c.createdAt) || Date.now()
     };
   };
@@ -487,6 +491,11 @@
     const createdAt = Number(m.createdAt) || Date.now();
     const source = ["auto", "manual", "seed"].includes(m.source) ? m.source : "manual";
     const content = String(m.content || "").trim();
+    const characterId = String(m.characterId || fallbackCharacterId || "");
+    const scope = ["private", "group", "public"].includes(m.scope) ? m.scope : "private";
+    const knownBy = Array.isArray(m.knownBy)
+      ? Array.from(new Set(m.knownBy.map(String).filter(Boolean)))
+      : (characterId ? [characterId] : []);
     const layer = typeof E.normalizeMemoryLayer === "function"
       ? E.normalizeMemoryLayer(m.layer || m.memoryLayer, content)
       : "fact";
@@ -495,15 +504,20 @@
       : [];
     return {
       id: m.id || E.uid("mem"),
-      characterId: String(m.characterId || fallbackCharacterId || ""),
+      characterId,
       content,
       importance: E.clamp(Number(m.importance) || 3, 1, 5),
       pinned: !!m.pinned,
       source,
+      scope,
+      knownBy,
       layer,
       tags,
       sourceChatId: String(m.sourceChatId || ""),
       sourceMessageIds: Array.isArray(m.sourceMessageIds) ? m.sourceMessageIds.map(String) : [],
+      sourceEventId: String(m.sourceEventId || ""),
+      confidence: E.clamp(Number(m.confidence) || 0.8, 0, 1),
+      lastConfirmedAt: Number(m.lastConfirmedAt) || 0,
       lastUsedAt: Number(m.lastUsedAt) || 0,
       useCount: Number(m.useCount) || 0,
       createdAt,

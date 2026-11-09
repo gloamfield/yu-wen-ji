@@ -58,9 +58,14 @@
     const messages = E.getChatMessages(chat.id);
     const members = (chat.characterIds || []).map((id) => E.getCharacter(id)).filter(Boolean);
     const directCharacter = chat.type === "direct" ? members[0] : null;
+    const directState = directCharacter && typeof E.characterStateFor === "function"
+      ? E.characterStateFor(directCharacter)
+      : null;
     const subtitle = chat.type === "group"
       ? members.map((item) => item.name).join(" · ")
-      : directCharacter ? directCharacter.relationship : "";
+      : directCharacter
+        ? [directCharacter.relationship, directState ? directState.shortLine : ""].filter(Boolean).join(" · ")
+        : "";
     const actions = chat.type === "direct" && directCharacter
       ? `<button class="header-btn" data-action="call-character" data-id="${E.escapeHTML(directCharacter.id)}" aria-label="打电话">${E.icon("phone", 18)}</button>
          <button class="header-btn" data-action="chat-menu" data-id="${E.escapeHTML(chat.id)}" aria-label="更多">${E.icon("more", 18)}</button>`
@@ -229,6 +234,7 @@
     await E.saveMessage(message);
     chat.lastMessageAt = message.createdAt;
     await E.saveChat(chat);
+    if (E.proactiveEngine) await E.proactiveEngine.onUserMessage(chat);
     E.renderRoute();
     await E.runAssistantReply(chat);
   };
