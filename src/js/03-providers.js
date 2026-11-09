@@ -480,14 +480,21 @@
     const events = (Array.isArray(life.batch) ? life.batch : [])
       .filter((event) => event && event.characterId === character.id)
       .slice(0, 3);
-    if (!events.length) return "";
+    const storyline = typeof E.storylineEngine !== "undefined"
+      ? E.storylineEngine.contextFor(character)
+      : "";
+    if (!events.length && !storyline) return "";
     const labels = { moment: "发了动态", diary: "写了日记", call: "有未接来电", message: "发过消息" };
     const rows = events.map((event) => {
       const label = labels[event.type] || "做了点小事";
       const text = String(event.text || "").split("\n")[0].slice(0, 60);
       return `- ${E.fmtRelative(event.createdAt)}${label}：${text}`;
     });
-    return `【你最近的生活】\n${rows.join("\n")}\n这些是你自己经历过的事。聊天时可以自然带一句，但不要逐条汇报。`;
+    return [
+      events.length ? `【你最近的生活】\n${rows.join("\n")}` : "",
+      storyline,
+      "这些是你自己经历过的事。聊天时可以自然带一句，但不要逐条汇报。"
+    ].filter(Boolean).join("\n\n");
   };
 
   E.buildCharacterStateContext = function (character) {
@@ -551,9 +558,11 @@
       character.example ? `\n说话示例：\n${character.example}` : "",
       worldbook.length ? `\n世界书：\n${worldbook.join("\n")}` : "",
       memories.length ? `\n你记得的事（只在相关时自然使用，不要逐条复述）：\n${memories.join("\n")}` : "",
+      typeof E.relationshipEngine !== "undefined" ? E.relationshipEngine.promptContext(character) : "",
+      typeof E.commitmentEngine !== "undefined" ? E.commitmentEngine.promptContext(character) : "",
       E.buildLifeContext(character),
       chat.type === "group"
-        ? `\n这是一个群聊，参与者有：${(chat.characterIds || []).map((id) => (E.getCharacter(id) || {}).name).filter(Boolean).join("、")}。当前由你回复。你只知道这个群聊里发生的事，以及你和用户单独聊天时你亲历过的事；其他角色的私聊内容不会自动共享给你。直接输出你说的话，不要加“${character.name}：”这样的前缀。`
+        ? `\n这是一个群聊，参与者有：${(chat.characterIds || []).map((id) => (E.getCharacter(id) || {}).name).filter(Boolean).join("、")}。当前由你回复。你只知道这个群聊里发生的事，以及你和用户单独聊天时你亲历过的事；其他角色的私聊内容不会自动共享给你。群里的其他角色可能会接你的话，但不要替他们发言。直接输出你说的话，不要加“${character.name}：”这样的前缀。`
         : ""
     ].filter(Boolean).join("\n");
 
@@ -1216,7 +1225,7 @@
       const lastUser = [...messages].reverse().find((message) => message.role === "user");
       const text = E.demoReply(context.character, lastUser ? lastUser.content : "");
       await E.simulateStream(text, onDelta, signal);
-      return { text, characterId: context.character.id };
+      return { text, characterId: context.character.id, usedMemoryIds: context.usedMemoryIds || [] };
     }
     const text = await E.chatComplete(context.messages, {
       stream: true,
@@ -1225,7 +1234,7 @@
       temperature: 0.85,
       maxTokens: 2048
     });
-    return { text, characterId: context.character.id };
+    return { text, characterId: context.character.id, usedMemoryIds: context.usedMemoryIds || [] };
   };
 
   E.generateMoment = async function (character) {

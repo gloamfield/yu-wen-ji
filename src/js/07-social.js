@@ -50,7 +50,7 @@
           </button>
         </div>
         ${comments.length ? `<div class="comments">
-          ${comments.map((comment) => `<div class="comment"><b>${E.escapeHTML(comment.name || "我")}</b>：${E.escapeHTML(comment.text || "")}</div>`).join("")}
+          ${comments.map((comment) => `<div class="comment"><b>${E.escapeHTML(comment.name || "我")}</b>${comment.replyTo ? ` <span class="comment-reply">回 ${E.escapeHTML(comment.replyTo)}</span>` : ""}：${E.escapeHTML(comment.text || "")}</div>`).join("")}
         </div>` : ""}
       </div>
     `;

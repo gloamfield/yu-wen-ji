@@ -74,6 +74,25 @@
       case "toggle-memory-pin":
         await E.toggleMemoryPin(id);
         break;
+      case "add-commitment":
+        E.commitmentFormFlow(id);
+        break;
+      case "edit-commitment":
+        E.commitmentFormFlow(el.dataset.character || route.args[0] || "", id);
+        break;
+      case "complete-commitment":
+        await E.commitmentEngine.complete(id);
+        E.toast("约定已完成");
+        E.renderRoute();
+        break;
+      case "cancel-commitment":
+        await E.commitmentEngine.cancel(id);
+        E.toast("约定已取消");
+        E.renderRoute();
+        break;
+      case "resolve-unresolved":
+        await E.resolveUnresolvedFlow(id);
+        break;
       case "start-chat":
         await E.startChatWithCharacter(id);
         break;
@@ -86,6 +105,21 @@
       case "send-message":
         await E.sendChatMessage(route.args[0]);
         break;
+      case "voice-record":
+        if (E.state.voiceRecording) E.stopVoiceRecording(true);
+        else await E.startVoiceRecording();
+        break;
+      case "voice-cancel":
+        E.cancelVoiceRecording();
+        break;
+      case "message-reference":
+        E.showMessageReference(id);
+        break;
+      case "speak-message": {
+        const message = E.state.messages.find((item) => item.id === id);
+        if (message) E.speak(message.transcript || message.content || "");
+        break;
+      }
       case "stop-generation":
         E.stopGeneration();
         break;
@@ -151,6 +185,21 @@
       case "delete-forum":
         await E.deleteForumFlow(id);
         break;
+      case "her-phone-tab":
+        E.herPhoneTab(el.dataset.tab);
+        break;
+      case "add-herphone-item":
+        E.herPhoneFormFlow(id, el.dataset.kind || "memo");
+        break;
+      case "edit-herphone-item":
+        E.herPhoneFormFlow(id, el.dataset.kind || "memo", el.dataset.item);
+        break;
+      case "delete-herphone-item":
+        await E.deleteHerPhoneItem(id, el.dataset.kind || "memo", el.dataset.item);
+        break;
+      case "toggle-herphone-done":
+        await E.toggleHerPhoneDone(id, el.dataset.kind || "memo", el.dataset.item);
+        break;
       case "upload-gallery":
         E.uploadGalleryFlow();
         break;
@@ -201,6 +250,16 @@
         break;
       case "fetch-models":
         await E.fetchModelsFromFields();
+        break;
+      case "install-pwa":
+        if (E.state.installPrompt) {
+          E.state.installPrompt.prompt();
+          await E.state.installPrompt.userChoice.catch(() => {});
+          E.state.installPrompt = null;
+          E.renderRoute();
+        } else {
+          E.toast("当前浏览器没有提供安装入口，可以从浏览器菜单选择“安装到桌面”");
+        }
         break;
       case "export-backup":
         await E.exportBackup();
@@ -317,6 +376,16 @@
       if (!E.state.locked) E.renderRoute();
     });
 
+    window.addEventListener("beforeinstallprompt", (event) => {
+      event.preventDefault();
+      E.state.installPrompt = event;
+      if (E.parseRoute().name === "settings") E.renderRoute();
+    });
+
+    window.addEventListener("appinstalled", () => {
+      E.state.installPrompt = null;
+    });
+
     const lock = document.getElementById("lock-screen");
     if (lock) {
       lock.addEventListener("click", (event) => {
@@ -343,6 +412,11 @@
 
   async function init() {
     if (!location.hash) location.hash = "#/home";
+    if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+      navigator.serviceWorker.register("./sw.js").catch((error) => {
+        console.warn("PWA 离线缓存注册失败", error);
+      });
+    }
     try {
       await E.loadState();
     } catch (error) {

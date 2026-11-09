@@ -34,6 +34,8 @@
     silence: "安静了一阵",
     memory: "想起了你说过的事",
     promise: "记着之前的约定",
+    commitment: "有一件约定快到了",
+    repair: "有一句话还没聊开",
     event: "刚发生了一件小事",
     care: "想知道你今天怎么样"
   };
@@ -149,6 +151,12 @@
   }
 
   function chooseReason(character, now) {
+    if (typeof E.commitmentEngine !== "undefined" && E.commitmentEngine.dueIntent(character.id, now)) {
+      return "commitment";
+    }
+    if (typeof E.relationshipEngine !== "undefined" && E.relationshipEngine.needsRepair(character, now)) {
+      return "repair";
+    }
     const event = lastLifeEvent(character.id);
     if (event && now - Number(event.createdAt) < 6 * HOUR) return "event";
     if (hasPromiseMemory(character.id)) return "promise";
@@ -210,13 +218,27 @@
     const record = proactiveRecord(character.id, now);
     const state = E.characterStateFor(character, now);
     const reason = chooseReason(character, now);
-    const randomGap = pace.minGapMs + Math.floor(Math.random() * Math.max(1, pace.maxGapMs - pace.minGapMs));
-    const dueAt = Math.max(
+    const commitment = reason === "commitment" && typeof E.commitmentEngine !== "undefined"
+      ? E.commitmentEngine.dueIntent(character.id, now)
+      : null;
+    const baseGap = pace.minGapMs + Math.floor(Math.random() * Math.max(1, pace.maxGapMs - pace.minGapMs));
+    const randomGap = typeof E.relationshipEngine !== "undefined"
+      ? E.relationshipEngine.adjustGap(baseGap, character)
+      : baseGap;
+    const normalDueAt = Math.max(
       now + 5 * MINUTE,
       record.lastSentAt ? record.lastSentAt + pace.minGapMs : 0,
       state && !state.canInterrupt && state.nextAvailableAt ? state.nextAvailableAt : 0,
       now + randomGap
     );
+    const dueAt = commitment
+      ? Math.max(
+        now + 5 * MINUTE,
+        record.lastSentAt ? record.lastSentAt + pace.minGapMs : 0,
+        state && !state.canInterrupt && state.nextAvailableAt ? state.nextAvailableAt : 0,
+        Math.min(normalDueAt, Number(commitment.dueAt) - 2 * HOUR)
+      )
+      : normalDueAt;
     const intent = E.normalizeProactiveIntent({
       id: E.uid("intent"),
       characterId: character.id,
@@ -226,7 +248,10 @@
       expiresAt: dueAt + 2 * HOUR,
       channel: "chat",
       status: "pending",
-      sourceEventId: lastLifeEvent(character.id) ? lastLifeEvent(character.id).id : "",
+      sourceEventId: lastLifeEvent(character.id)
+        ? (lastLifeEvent(character.id).sourceEventId || lastLifeEvent(character.id).id)
+        : "",
+      sourceCommitmentId: commitment ? commitment.id : "",
       createdAt: now
     });
     life.intents = (life.intents || []).concat(intent).slice(-24);
@@ -333,6 +358,16 @@
         "我记着你之前答应过的事。别装忘。",
         "突然想起我们说过的那件事，等你空下来再说。"
       ],
+      commitment: [
+        "之前说好的事，你还记得吗？不急，我只是先问一句。",
+        "快到我们约好的时间了。你那边方便吗？",
+        "我把那件事记在手机里了。别到时候只有我一个人记得。"
+      ],
+      repair: [
+        "刚刚那句话，我想了想，还是想跟你说清楚。",
+        "我可能有点在意。不是要你马上解释，只是不想装作没事。",
+        "你还在生气吗？如果不方便说，我可以等。"
+      ],
       event: [
         `今天${state && state.activity ? state.activity : "忙完"}的时候，遇到一件小事，想跟你说。`,
         "刚刚发生了一件很小的事，第一个想到的是你。",
@@ -372,6 +407,8 @@
         `你们的关系：${character.relationship || "朋友"}。`,
         `你此刻的状态：${state ? state.statusLine : "刚空下来"}。`,
         `你想联系对方的原因：${REASON_LABELS[intent.reason] || "想起对方"}。`,
+        typeof E.relationshipEngine !== "undefined" ? E.relationshipEngine.promptContext(character) : "",
+        typeof E.commitmentEngine !== "undefined" ? E.commitmentEngine.promptContext(character) : "",
         "只输出你发出去的那条消息，1 到 2 句，口语化，不要解释，不要加引号，不要写角色名。",
         "如果当前不方便，可以写得短一点，或者说明晚点再聊。"
       ].join("\n");
@@ -411,6 +448,8 @@
       createdAt: now,
       source: "proactive",
       intentId: intent.id,
+      sourceCommitmentId: intent.sourceCommitmentId || "",
+      sourceEventId: intent.sourceEventId || "",
       stateSnapshot: state ? {
         activity: state.activity,
         location: state.location,
@@ -441,6 +480,9 @@
     record.lastEvaluatedAt = now;
     record.nextEligibleAt = 0;
     await E.saveLifeState();
+    if (intent.sourceCommitmentId && typeof E.commitmentEngine !== "undefined") {
+      await E.commitmentEngine.markReminded(intent.sourceCommitmentId);
+    }
     if (E.state.locked) {
       E.renderLockScreen();
       E.renderStatus();

@@ -89,9 +89,24 @@
     const character = message.characterId ? E.getCharacter(message.characterId) : null;
     const showName = !isUser && chat.type === "group" && character;
     const nameHTML = showName ? `<div class="msg-name">${E.escapeHTML(character.name)}</div>` : "";
-    const content = message.streaming && !message.content
-      ? `<span class="typing"><i></i><i></i><i></i></span>`
-      : E.escapeHTML(message.content || "");
+    const isVoice = message.type === "voice" || !!message.audio;
+    const content = isVoice
+      ? `<div class="voice-message">
+          <audio class="voice-audio" controls preload="metadata" src="${E.escapeHTML(message.audio || "")}"></audio>
+          <div class="voice-meta">${E.icon("wave", 13)} ${Number(message.duration) ? `${Math.max(1, Math.round(Number(message.duration)))}″` : "语音消息"}</div>
+          ${message.transcript ? `<div class="voice-transcript">${E.escapeHTML(message.transcript)}</div>` : ""}
+        </div>`
+      : message.streaming && !message.content
+        ? `<span class="typing"><i></i><i></i><i></i></span>`
+        : E.escapeHTML(message.content || "");
+    const memoryIds = Array.isArray(message.memoryIds) ? message.memoryIds : [];
+    const refs = [
+      memoryIds.length ? `<button class="msg-ref-chip" data-action="message-reference" data-id="${E.escapeHTML(message.id)}">${E.icon("memory", 11)} 她为什么提这个</button>` : "",
+      message.sourceEventId ? `<button class="msg-ref-chip" data-action="message-reference" data-id="${E.escapeHTML(message.id)}">${E.icon("sparkles", 11)} 这件事的来龙去脉</button>` : "",
+      !isUser && !isVoice && !message.streaming && message.content
+        ? `<button class="msg-ref-chip" data-action="speak-message" data-id="${E.escapeHTML(message.id)}" aria-label="朗读这条消息">${E.icon("speaker", 11)} 朗读</button>`
+        : ""
+    ].filter(Boolean).join("");
     const avatarHTML = isUser
       ? `<span class="avatar xs" style="background:#8d8588">${E.escapeHTML((E.state.settings.userName || "我").slice(0, 1))}</span>`
       : character ? E.avatar(character, "xs") : `<span class="avatar xs" style="background:#8b6f8f">${E.icon("sparkles", 12)}</span>`;
@@ -101,6 +116,7 @@
         <div class="msg-bubble-wrap">
           ${nameHTML}
           <div class="msg-bubble">${content}</div>
+          ${refs ? `<div class="msg-refs">${refs}</div>` : ""}
           <div class="msg-time">${E.fmtClock(message.createdAt)}${message.streaming ? " · 正在输入" : ""}</div>
         </div>
       </div>
@@ -110,6 +126,8 @@
   E.chatInputHTML = function () {
     return `
       <div class="chat-input">
+        ${E.state.voiceRecording ? `<div class="voice-recording-bar"><span class="recording-dot"></span><span class="grow">正在录音 · 再点一次发送</span><button class="text-btn" data-action="voice-cancel">取消</button></div>` : ""}
+        <button class="mic-btn ${E.state.voiceRecording ? "recording" : ""}" data-action="voice-record" aria-label="${E.state.voiceRecording ? "停止并发送语音" : "录制语音"}" ${E.state.generating ? "disabled" : ""}>${E.icon("mic", 18)}</button>
         <textarea id="chat-input" rows="1" placeholder="说点什么……" ${E.state.generating ? "disabled" : ""}></textarea>
         ${E.state.generating
           ? `<button class="send-btn stop-btn" data-action="stop-generation" aria-label="停止">${E.icon("pause", 19)}</button>`
@@ -235,6 +253,8 @@
     chat.lastMessageAt = message.createdAt;
     await E.saveChat(chat);
     if (E.proactiveEngine) await E.proactiveEngine.onUserMessage(chat);
+    if (E.relationshipEngine) await E.relationshipEngine.observeMessage(chat, message);
+    if (E.commitmentEngine) await E.commitmentEngine.observeMessage(chat, message);
     E.renderRoute();
     await E.runAssistantReply(chat);
   };
@@ -271,6 +291,7 @@
 
       placeholder.content = finalSegments[0];
       placeholder.characterId = result.characterId;
+      placeholder.memoryIds = Array.isArray(result.usedMemoryIds) ? result.usedMemoryIds : [];
       placeholder.streaming = false;
       placeholder.createdAt = Date.now();
       await E.saveMessage(placeholder);
@@ -288,7 +309,8 @@
           content: "",
           streaming: true,
           createdAt: Date.now(),
-          replyId
+          replyId,
+          memoryIds: Array.isArray(result.usedMemoryIds) ? result.usedMemoryIds : []
         };
         E.state.messages.push(typing);
         E.refreshThreadMessages(chat);
@@ -308,6 +330,45 @@
         chat.lastMessageAt = typing.createdAt;
         await E.saveChat(chat);
         E.refreshThreadMessages(chat);
+      }
+
+      if (E.relationshipEngine) {
+        await E.relationshipEngine.observeMessage(chat, {
+          role: "assistant",
+          content: fullText,
+          characterId: result.characterId,
+          createdAt: Date.now()
+        });
+      }
+      if (E.commitmentEngine) {
+        await E.commitmentEngine.observeMessage(chat, {
+          role: "assistant",
+          content: fullText,
+          characterId: result.characterId,
+          createdAt: Date.now()
+        });
+      }
+
+      if (chat.type === "group" && E.characterInteractionEngine && result.characterId) {
+        const interjection = E.characterInteractionEngine.groupInterjection(chat, result.characterId, fullText, Date.now());
+        if (interjection) {
+          const delay = E.state.settings.typingDelay === false ? 0 : E.chatSegmentDelay(interjection.text, 1);
+          if (delay > 0) await E.sleep(delay);
+          const reply = {
+            id: E.uid("msg"),
+            chatId: chat.id,
+            role: "assistant",
+            characterId: interjection.characterId,
+            content: interjection.text,
+            createdAt: Date.now(),
+            source: "interaction"
+          };
+          E.state.messages.push(reply);
+          await E.saveMessage(reply);
+          chat.lastMessageAt = reply.createdAt;
+          await E.saveChat(chat);
+          E.refreshThreadMessages(chat);
+        }
       }
 
       const latestUser = [...E.getChatMessages(chat.id)].reverse().find((message) => message.role === "user");
@@ -411,6 +472,10 @@
             <div class="settings-icon">${E.icon("book", 17)}</div>
             <div class="grow"><div class="settings-label">打开记忆库</div><div class="settings-desc">查看角色记住的所有事</div></div>
           </div>
+          ${chat.type === "direct" ? `<div class="settings-row" data-route="#/her-phone/${E.escapeHTML((chat.characterIds || [])[0] || "")}">
+            <div class="settings-icon">${E.icon("device", 17)}</div>
+            <div class="grow"><div class="settings-label">她的手机</div><div class="settings-desc">备忘录、浏览记录、草稿和购物车</div></div>
+          </div>` : ""}
           <div class="settings-row" data-action="export-chat" data-id="${E.escapeHTML(chat.id)}">
             <div class="settings-icon">${E.icon("download", 17)}</div>
             <div class="grow"><div class="settings-label">导出聊天</div><div class="settings-desc">JSON 格式，可迁移</div></div>
@@ -540,6 +605,156 @@
       }
     });
     input.click();
+  };
+
+  E.showMessageReference = function (messageId) {
+    const message = E.state.messages.find((item) => item.id === messageId);
+    if (!message) return;
+    const ref = E.continuity && E.continuity.referenceForMessage
+      ? E.continuity.referenceForMessage(message)
+      : { memories: [], story: null, event: null };
+    const memories = ref.memories || [];
+    const story = ref.story;
+    const event = ref.event;
+    const body = `
+      <div class="reference-intro">这句话不是凭空来的。下面是它可能借用的记忆、生活片段和关系背景。</div>
+      ${memories.length ? `
+        <div class="section-label">她记住的事</div>
+        ${memories.map((memory) => `
+          <div class="entry-row">
+            <div class="row-between" style="gap:8px"><span class="pill">${E.escapeHTML(E.memoryLayerLabel(memory.layer))}</span><span class="muted tiny">${E.fmtRelative(memory.updatedAt || memory.createdAt)}</span></div>
+            <div class="entry-text">${E.escapeHTML(memory.content)}</div>
+          </div>
+        `).join("")}
+      ` : ""}
+      ${story ? `
+        <div class="section-label">正在发生的故事</div>
+        <div class="entry-row">
+          <div class="entry-title">${E.escapeHTML(story.story.title)} · ${E.escapeHTML(story.beat.title)}</div>
+          <div class="entry-text">${E.escapeHTML(story.beat.text)}</div>
+          <div class="muted tiny" style="margin-top:6px">${E.escapeHTML(story.story.premise)}</div>
+        </div>
+      ` : ""}
+      ${event ? `
+        <div class="section-label">这条消息之前发生的事</div>
+        <div class="entry-row">
+          <div class="entry-title">${E.escapeHTML(event.title || "一件小事")}</div>
+          <div class="entry-text">${E.escapeHTML(event.text || "")}</div>
+          <div class="muted tiny" style="margin-top:6px">${E.fmtRelative(event.createdAt)} · ${E.escapeHTML(event.reason || "")}</div>
+        </div>
+      ` : ""}
+      ${!memories.length && !story && !event ? `<div class="empty compact-empty">${E.icon("sparkles", 18)}<div>这条回复没有挂上具体的记忆来源。它可能只是顺着当下的话题接了一句。</div></div>` : ""}
+      <div class="hint" style="margin-top:12px">来源只在本地展示，不会把记忆原文再发给模型。</div>
+    `;
+    E.openSheet({ title: "她为什么会提这个", body });
+  };
+
+  E.startVoiceRecording = async function () {
+    if (E.state.voiceRecording) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === "undefined") {
+      E.toast("这个浏览器不支持语音录制，可以先用文字消息");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks = [];
+      const recorder = new MediaRecorder(stream);
+      const recording = {
+        recorder,
+        stream,
+        chunks,
+        startedAt: Date.now(),
+        transcript: "",
+        cancel: false,
+        recognition: null
+      };
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data && event.data.size) chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", () => {
+        stream.getTracks().forEach((track) => track.stop());
+        if (recording.cancel) return;
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        if (!blob.size) {
+          E.toast("没有录到声音");
+          return;
+        }
+        if (blob.size > 3.2 * 1024 * 1024) {
+          E.toast("语音太长了，先录短一点");
+          return;
+        }
+        const file = new File([blob], "voice.webm", { type: blob.type || "audio/webm" });
+        E.readFileAsDataURL(file).then(async (audio) => {
+          const chat = E.getChat(E.parseRoute().args[0]);
+          if (!chat) return;
+          const message = {
+            id: E.uid("msg"),
+            chatId: chat.id,
+            role: "user",
+            type: "voice",
+            audio,
+            duration: Math.max(1, Math.round((Date.now() - recording.startedAt) / 1000)),
+            transcript: recording.transcript.trim(),
+            content: recording.transcript.trim() || "语音消息",
+            createdAt: Date.now()
+          };
+          E.state.messages.push(message);
+          await E.saveMessage(message);
+          chat.lastMessageAt = message.createdAt;
+          await E.saveChat(chat);
+          if (E.proactiveEngine) await E.proactiveEngine.onUserMessage(chat);
+          if (E.relationshipEngine) await E.relationshipEngine.observeMessage(chat, message);
+          if (E.commitmentEngine) await E.commitmentEngine.observeMessage(chat, message);
+          E.renderRoute();
+          await E.runAssistantReply(chat);
+        }).catch((error) => E.toast(error.message || "语音保存失败"));
+      });
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.lang = "zh-CN";
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.addEventListener("result", (event) => {
+            let text = "";
+            for (let index = event.resultIndex; index < event.results.length; index += 1) {
+              text += event.results[index][0].transcript;
+            }
+            if (text.trim()) recording.transcript = `${recording.transcript} ${text.trim()}`.trim().slice(0, 300);
+          });
+          recognition.addEventListener("error", () => {});
+          recognition.start();
+          recording.recognition = recognition;
+        } catch (error) {
+          // Speech recognition is optional; the audio message still works.
+        }
+      }
+      E.state.voiceRecording = recording;
+      recorder.start();
+      E.renderRoute();
+      E.toast("正在录音，再点一次麦克风发送");
+    } catch (error) {
+      E.toast("没有拿到麦克风权限，可以先用文字消息");
+    }
+  };
+
+  E.stopVoiceRecording = function (send) {
+    const recording = E.state.voiceRecording;
+    if (!recording) return;
+    recording.cancel = send === false;
+    if (recording.recognition) {
+      try { recording.recognition.stop(); } catch (error) {}
+    }
+    try {
+      if (recording.recorder.state !== "inactive") recording.recorder.stop();
+    } catch (error) {}
+    E.state.voiceRecording = null;
+    E.renderRoute();
+  };
+
+  E.cancelVoiceRecording = function () {
+    E.stopVoiceRecording(false);
   };
 
   E.speak = function (text) {

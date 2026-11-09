@@ -158,7 +158,7 @@
       id: String(item.id || E.uid("intent")),
       characterId: String(item.characterId || ""),
       dueAt,
-      reason: ["silence", "memory", "promise", "event", "care"].includes(item.reason)
+      reason: ["silence", "memory", "promise", "commitment", "repair", "event", "care"].includes(item.reason)
         ? item.reason
         : "silence",
       urgency: E.clamp(Number(item.urgency) || 0.45, 0, 1),
@@ -168,6 +168,7 @@
         : "chat",
       status,
       sourceEventId: String(item.sourceEventId || ""),
+      sourceCommitmentId: String(item.sourceCommitmentId || ""),
       createdAt: Number(item.createdAt) || Date.now(),
       sentAt: Number(item.sentAt) || 0,
       lastEvaluatedAt: Number(item.lastEvaluatedAt) || 0,
@@ -215,10 +216,17 @@
           route: String(event.route || ""),
           reason: String(event.reason || ""),
           silent: !!event.silent,
-          createdAt: Number(event.createdAt) || Date.now()
+          createdAt: Number(event.createdAt) || Date.now(),
+          sourceEventId: String(event.sourceEventId || ""),
+          storylineId: String(event.storylineId || ""),
+          visibleTo: Array.isArray(event.visibleTo) ? event.visibleTo.map(String) : [],
+          knownBy: Array.isArray(event.knownBy) ? event.knownBy.map(String) : []
         };
       }).filter(Boolean)
       : [];
+    const continuity = typeof E.normalizeContinuityState === "function"
+      ? E.normalizeContinuityState(source)
+      : { commitments: [], storylines: [], herPhone: {}, bonds: [] };
     return {
       awayMs: Math.max(0, Number(source.awayMs) || 0),
       awaySince: Math.max(0, Number(source.awaySince) || 0),
@@ -234,7 +242,11 @@
           .filter((intent) => intent.characterId)
           .slice(-24)
         : [],
-      proactive: normalizeProactiveState(source.proactive)
+      proactive: normalizeProactiveState(source.proactive),
+      commitments: continuity.commitments,
+      storylines: continuity.storylines,
+      herPhone: continuity.herPhone,
+      bonds: continuity.bonds
     };
   };
 
@@ -448,17 +460,9 @@
         const character = E.getCharacter(event.characterId);
         if (!character) continue;
         if (event.type === "moment") {
-          const others = E.state.characters.filter((item) => item.id !== character.id);
-          const comments = [];
-          if (others.length && hashString(event.key) % 3 === 0) {
-            const other = others[hashString(`${event.key}:comment`) % others.length];
-            comments.push({
-              id: E.uid("cmt"),
-              name: other.name,
-              text: pick(["我也在。", "这张好看。", "你又开始了。"], `${event.key}:text`),
-              createdAt: event.createdAt + 60000
-            });
-          }
+          const comments = typeof E.characterInteractionEngine !== "undefined"
+            ? E.characterInteractionEngine.commentsFor(event, character, E.state.characters)
+            : [];
           const moment = {
             id: E.uid("moment"),
             characterId: character.id,
@@ -468,7 +472,11 @@
             liked: false,
             comments,
             createdAt: event.createdAt,
-            source: "life"
+            source: "life",
+            sourceEventId: event.sourceEventId || "",
+            storylineId: event.storylineId || "",
+            visibleTo: Array.isArray(event.visibleTo) ? event.visibleTo : [],
+            knownBy: Array.isArray(event.knownBy) ? event.knownBy : []
           };
           E.state.moments.push(moment);
           await E.db.put("moments", moment);
@@ -479,7 +487,9 @@
             content: event.text,
             mood: event.mood || "平静",
             createdAt: event.createdAt,
-            source: "life"
+            source: "life",
+            sourceEventId: event.sourceEventId || "",
+            storylineId: event.storylineId || ""
           };
           E.state.diary.push(entry);
           await E.db.put("diary", entry);
@@ -490,7 +500,9 @@
             type: "missed",
             duration: 0,
             createdAt: event.createdAt,
-            source: "life"
+            source: "life",
+            sourceEventId: event.sourceEventId || "",
+            storylineId: event.storylineId || ""
           };
           E.state.calls.push(call);
           await E.db.put("calls", call);
@@ -503,7 +515,9 @@
             characterId: character.id,
             content: event.text,
             createdAt: event.createdAt,
-            source: "life"
+            source: "life",
+            sourceEventId: event.sourceEventId || "",
+            storylineId: event.storylineId || ""
           };
           E.state.messages.push(message);
           await E.saveMessage(message);
@@ -511,6 +525,10 @@
           chat.lastMessageAt = event.createdAt;
           await E.saveChat(chat);
           event.route = `#/chat/${chat.id}`;
+        }
+
+        if (typeof E.herPhoneEngine !== "undefined") {
+          E.herPhoneEngine.ingestEvent(event, character);
         }
 
         if (!event.silent) {
@@ -549,28 +567,41 @@
         return { events: [], elapsedMs, reason: "disabled" };
       }
 
+      const dnd = {
+        enabled: !!E.state.settings.dndEnabled,
+        start: E.state.settings.dndStart,
+        end: E.state.settings.dndEnd
+      };
+      const storyEvents = typeof E.storylineEngine !== "undefined"
+        ? E.storylineEngine.materialize({
+          now,
+          elapsedMs,
+          characters: E.state.characters,
+          todayCount: life.todayCount,
+          maxPerDay: config.maxPerDay,
+          existingKeys: life.recentKeys,
+          dnd
+        })
+        : [];
       const result = E.lifeEngine.planBatch({
         now,
         elapsedMs,
         pace: E.state.settings.lifePace,
         characters: E.state.characters,
         chats: E.state.chats,
-        todayCount: life.todayCount,
-        existingKeys: life.recentKeys,
+        todayCount: life.todayCount + storyEvents.length,
+        existingKeys: life.recentKeys.concat(storyEvents.map((event) => event.key)),
         seed: opts.seed || "",
-        dnd: {
-          enabled: !!E.state.settings.dndEnabled,
-          start: E.state.settings.dndStart,
-          end: E.state.settings.dndEnd
-        }
+        dnd
       });
 
-      if (result.events.length) {
-        await E.lifeEngine.applyEvents(result.events);
-        life.batch = result.events.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
-        life.todayCount += result.events.length;
+      const events = storyEvents.concat(result.events);
+      if (events.length) {
+        await E.lifeEngine.applyEvents(events);
+        life.batch = events.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
+        life.todayCount += events.length;
         life.lastAwayMs = elapsedMs;
-        life.recentKeys = life.recentKeys.concat(result.events.map((event) => event.key)).slice(-80);
+        life.recentKeys = life.recentKeys.concat(events.map((event) => event.key)).slice(-80);
         life.awayMs = 0;
       } else {
         life.awayMs = elapsedMs < config.gapMs ? elapsedMs : 0;
@@ -578,7 +609,10 @@
       life.awaySince = now;
       life.lastSettledAt = now;
       await E.saveLifeState();
-      return result;
+      return Object.assign(result, {
+        events,
+        storyEvents: storyEvents.length
+      });
     },
 
     async onBoot() {

@@ -109,7 +109,10 @@
     callSeconds: 0,
     callCharacterId: null,
     notificationOpen: false,
-    memoryExtracting: {}
+    memoryExtracting: {},
+    voiceRecording: null,
+    herPhoneTab: "memos",
+    installPrompt: null
   };
 
   E.deepMergeSettings = function (saved) {

@@ -179,6 +179,11 @@
 
           <div class="section-label">数据</div>
           <div class="card settings-group">
+            <div class="settings-row" data-action="install-pwa">
+              <div class="settings-icon">${E.icon("device", 17)}</div>
+              <div class="grow"><div class="settings-label">安装到桌面</div><div class="settings-desc">像普通 App 一样打开；离线缓存已启用</div></div>
+              <span class="muted">${E.icon("arrowRight", 16)}</span>
+            </div>
             <div class="settings-row" data-action="export-backup">
               <div class="settings-icon">${E.icon("download", 17)}</div>
               <div class="grow"><div class="settings-label">导出完整备份</div><div class="settings-desc">角色、聊天、动态、相册、日记等</div></div>

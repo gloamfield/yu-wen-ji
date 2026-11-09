@@ -19,12 +19,14 @@ const jsFiles = [
   "02b-life-engine.js",
   "02c-life-state.js",
   "02d-proactive.js",
+  "02e-continuity.js",
   "03-providers.js",
   "04-shell.js",
   "05-contacts.js",
   "06-chat.js",
   "07-social.js",
   "08-life.js",
+  "08b-her-phone.js",
   "09-settings.js",
   "10-boot.js",
 ];
@@ -44,5 +46,9 @@ const html = template
   .replace("/*__SCRIPTS__*/", js);
 
 await mkdir(out, { recursive: true });
-await writeFile(join(out, "余温机.html"), html, "utf8");
-console.log(`built ${join(out, "余温机.html")}`);
+const singleFile = join(out, "余温机.html");
+const pagesFile = join(out, "index.html");
+await writeFile(singleFile, html, "utf8");
+await writeFile(pagesFile, html, "utf8");
+console.log(`built ${singleFile}`);
+console.log(`built ${pagesFile}`);

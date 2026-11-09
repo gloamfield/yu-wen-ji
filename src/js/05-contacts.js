@@ -82,6 +82,10 @@
     if (!characters.length) {
       return `<div class="card relation-card">${E.emptyState("group", "关系网还是空的", "新增角色以后，这里会出现你和他们的关系。")}</div>`;
     }
+    if (typeof E.characterInteractionEngine !== "undefined" && E.characterInteractionEngine.ensureBonds) {
+      E.characterInteractionEngine.ensureBonds();
+    }
+    const life = E.state.life = E.normalizeLifeState(E.state.life);
     const cx = 170;
     const cy = 108;
     const radius = characters.length === 1 ? 0 : 72;
@@ -93,6 +97,14 @@
         y: cy + Math.sin(angle) * radius
       };
     });
+    const positions = new Map(nodes.map((node) => [node.character.id, node]));
+    const bondEdges = (life.bonds || []).map((bond) => {
+      const one = positions.get(bond.a);
+      const two = positions.get(bond.b);
+      if (!one || !two) return "";
+      const strength = Math.max(0.08, Math.min(1, Number(bond.strength) || 0));
+      return `<line x1="${one.x}" y1="${one.y}" x2="${two.x}" y2="${two.y}" stroke="rgba(139,111,143,${0.12 + strength * 0.34})" stroke-width="${0.7 + strength * 2.1}"${bond.type === "群友" ? ' stroke-dasharray="2 4"' : ""}><title>${E.escapeHTML(bond.type || "认识")}</title></line>`;
+    }).join("");
     const edges = nodes.map((node) => {
       const mx = (cx + node.x) / 2;
       const my = (cy + node.y) / 2;
@@ -111,11 +123,13 @@
     return `
       <div class="card relation-card">
         <svg class="relation-svg" viewBox="0 0 340 210" role="img" aria-label="关系网">
+          ${bondEdges}
           ${edges}
           <circle cx="${cx}" cy="${cy}" r="24" fill="#241f21" opacity=".92"/>
           <text x="${cx}" y="${cy + 4}" fill="#fff" font-size="11" font-weight="700" text-anchor="middle">${E.escapeHTML((E.state.settings.userName || "我").slice(0, 1))}</text>
           ${circles}
         </svg>
+        <div class="hint" style="text-align:center;margin-top:4px">实线是你和角色的关系；角色之间的连线越深，代表他们越熟，虚线表示群聊关系。</div>
       </div>
     `;
   };
@@ -131,6 +145,18 @@
         : item.characterId === character.id)
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.updatedAt || b.createdAt) - Number(a.updatedAt || a.createdAt));
     const worldbook = character.worldbook || [];
+    const relationship = typeof E.relationshipEngine !== "undefined"
+      ? E.relationshipEngine.stateFor(character)
+      : null;
+    const commitments = typeof E.commitmentEngine !== "undefined"
+      ? E.commitmentEngine.listFor(character.id)
+      : [];
+    const storyline = typeof E.storylineEngine !== "undefined"
+      ? E.storylineEngine.activeFor(character.id)
+      : null;
+    const phoneSummary = typeof E.herPhoneEngine !== "undefined"
+      ? E.herPhoneEngine.summary(character.id)
+      : null;
     let tabBody = "";
     if (tab === "persona") {
       tabBody = `<div class="card prose">${E.escapeHTML(character.persona || "还没有写人设。")}</div>`;
@@ -151,7 +177,7 @@
           </div>
         `).join("") : E.emptyState("book", "还没有世界书", "写下角色生活的世界、地点、习惯和秘密。")}
       `;
-    } else {
+    } else if (tab === "memory") {
       tabBody = `
         <div class="row-between" style="margin:4px 0 10px">
           <div class="muted tiny">${memories.length} 条记忆 · ${memories.filter((item) => item.pinned).length} 条置顶</div>
@@ -178,6 +204,104 @@
           </div>
         `).join("") : E.emptyState("memory", "还没有记忆", "聊天里值得留下的事，可以手动记在这里。")}
       `;
+    } else {
+      const pending = commitments.filter((item) => item.status === "pending");
+      const finished = commitments.filter((item) => item.status !== "pending");
+      const timeline = typeof E.relationshipEngine !== "undefined"
+        ? E.relationshipEngine.timeline(character.id).slice(0, 8)
+        : [];
+      tabBody = `
+        <div class="relationship-card">
+          <div class="row-between" style="align-items:flex-start;gap:10px">
+            <div>
+              <div class="relationship-title">${E.escapeHTML(E.relationshipEngine ? E.relationshipEngine.temperatureLabel(relationship) : "还在试探")}</div>
+              <div class="muted tiny">关系不是数值，但会留下痕迹。</div>
+            </div>
+            <span class="pill">${E.escapeHTML(character.relationship || "朋友")}</span>
+          </div>
+          <div class="relationship-meters">
+            ${[
+              ["亲近", relationship ? relationship.closeness : 38, "closeness"],
+              ["信任", relationship ? relationship.trust : 42, "trust"],
+              ["张力", relationship ? relationship.tension : 8, "tension"]
+            ].map(([label, value, kind]) => `
+              <div class="relationship-meter">
+                <div class="row-between"><span>${label}</span><b>${Math.round(value)}</b></div>
+                <div class="meter-track"><i class="meter-fill ${kind}" style="width:${Math.round(value)}%"></i></div>
+              </div>
+            `).join("")}
+          </div>
+          ${relationship && relationship.unresolvedTopic ? `
+            <div class="unresolved-card">
+              <div class="row-between" style="align-items:flex-start;gap:8px">
+                <div>
+                  <div class="unresolved-label">还没聊开的事</div>
+                  <div class="unresolved-text">${E.escapeHTML(relationship.unresolvedTopic)}</div>
+                  <div class="muted tiny">${E.fmtRelative(relationship.unresolvedSince)}</div>
+                </div>
+                <button class="btn small ghost" data-action="resolve-unresolved" data-id="${E.escapeHTML(character.id)}">已经聊开</button>
+              </div>
+            </div>
+          ` : ""}
+        </div>
+
+        <div class="row-between" style="margin:16px 0 8px">
+          <div class="section-label" style="margin:0">约定与日程</div>
+          <button class="btn small soft" data-action="add-commitment" data-id="${E.escapeHTML(character.id)}">${E.icon("plus", 14)} 添加</button>
+        </div>
+        ${pending.length ? pending.map((item) => `
+          <div class="entry-row commitment-row">
+            <div class="row-between" style="align-items:flex-start;gap:8px">
+              <div class="grow">
+                <div class="entry-title">${E.escapeHTML(item.content)}</div>
+                <div class="entry-text">${E.escapeHTML(E.continuity.formatDue(item.dueAt))} · ${E.escapeHTML(E.continuity.commitmentSourceLabel(item.source))}${item.visibility === "group" ? " · 群里知道" : item.visibility === "public" ? " · 公开" : " · 只有她知道"}</div>
+              </div>
+              <div class="row" style="gap:2px">
+                <button class="icon-btn" data-action="edit-commitment" data-id="${E.escapeHTML(item.id)}" data-character="${E.escapeHTML(character.id)}" aria-label="编辑">${E.icon("edit", 15)}</button>
+                <button class="icon-btn" data-action="complete-commitment" data-id="${E.escapeHTML(item.id)}" aria-label="完成">${E.icon("check", 15)}</button>
+                <button class="icon-btn" data-action="cancel-commitment" data-id="${E.escapeHTML(item.id)}" aria-label="取消">${E.icon("close", 15)}</button>
+              </div>
+            </div>
+          </div>
+        `).join("") : `<div class="empty compact-empty">${E.icon("calendar", 18)}<div>还没有约定。聊天里说“明天提醒我”会自动记下来，也可以手动添加。</div></div>`}
+        ${finished.length ? `<div class="muted tiny" style="margin:10px 2px 6px">已经结束 · ${finished.length}</div>${finished.slice(0, 6).map((item) => `
+          <div class="commitment-row done">
+            <span>${E.escapeHTML(item.content)}</span>
+            <span class="muted tiny">${E.escapeHTML(E.continuity.commitmentStatusLabel(item.status))}</span>
+          </div>
+        `).join("")}` : ""}
+
+        <div class="section-label" style="margin-top:18px">正在发生</div>
+        ${storyline ? `
+          <div class="story-card">
+            <div class="story-kicker">${E.fmtDay(storyline.startDay)} — ${E.fmtDay(storyline.endDay)} · ${storyline.durationDays} 天</div>
+            <div class="story-title">${E.escapeHTML(storyline.title)}</div>
+            <div class="story-premise">${E.escapeHTML(storyline.premise)}</div>
+            <div class="story-beats">
+              ${storyline.beats.map((beat) => `
+                <div class="story-beat ${beat.appliedAt ? "applied" : ""}">
+                  <span class="story-beat-dot"></span>
+                  <div class="grow">
+                    <div class="story-beat-title">${E.escapeHTML(beat.title)}</div>
+                    <div class="story-beat-text">${beat.appliedAt ? E.escapeHTML(beat.text) : "还没有发生"}</div>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+        ` : `<div class="empty compact-empty">${E.icon("sparkles", 18)}<div>她的这几天还没有展开。离开一会儿，或者让生活引擎先走一步。</div></div>`}
+
+        <div class="row-between" style="margin:18px 0 8px">
+          <div class="section-label" style="margin:0">关系时间线</div>
+          <button class="text-btn" data-route="#/her-phone/${E.escapeHTML(character.id)}">她的手机 · ${phoneSummary ? phoneSummary.total : 0}</button>
+        </div>
+        ${timeline.length ? timeline.map((item) => `
+          <div class="timeline-row">
+            <span class="timeline-dot ${E.escapeHTML(item.type)}"></span>
+            <div class="grow"><div class="timeline-text">${E.escapeHTML(item.text)}</div><div class="muted tiny">${E.fmtRelative(item.at)}</div></div>
+          </div>
+        `).join("") : `<div class="empty compact-empty">${E.icon("history", 18)}<div>还没有关系记录。聊天、道歉、约定和故事都会留下痕迹。</div></div>`}
+      `;
     }
     return `
       <div class="app-page">
@@ -195,6 +319,7 @@
             <div class="profile-sub">${E.escapeHTML(character.relationship || "朋友")}${character.tags && character.tags.length ? ` · ${character.tags.map(E.escapeHTML).join(" / ")}` : ""} · 主动消息 ${E.escapeHTML(E.proactiveModeLabel(character.proactiveMode))}</div>
             <div class="profile-actions">
               <button class="btn" data-action="start-chat" data-id="${E.escapeHTML(character.id)}">${E.icon("chat", 16)} 聊天</button>
+              <button class="btn ghost" data-route="#/her-phone/${E.escapeHTML(character.id)}">${E.icon("device", 16)} 她的手机</button>
               <button class="btn ghost" data-action="export-character" data-id="${E.escapeHTML(character.id)}">${E.icon("download", 16)} 导出</button>
             </div>
           </div>
@@ -215,6 +340,7 @@
             <button class="tab ${tab === "persona" ? "active" : ""}" data-action="character-tab" data-tab="persona">人设</button>
             <button class="tab ${tab === "worldbook" ? "active" : ""}" data-action="character-tab" data-tab="worldbook">世界书</button>
             <button class="tab ${tab === "memory" ? "active" : ""}" data-action="character-tab" data-tab="memory">记忆</button>
+            <button class="tab ${tab === "relationship" ? "active" : ""}" data-action="character-tab" data-tab="relationship">关系</button>
           </div>
           ${tabBody}
         </div>
@@ -456,7 +582,30 @@
     E.state.characters = E.state.characters.filter((item) => item.id !== id);
     E.state.chats = E.state.chats.filter((chat) => !chatIds.includes(chat.id));
     E.state.messages = E.state.messages.filter((message) => !chatIds.includes(message.chatId));
+    for (const memory of E.state.memories) {
+      if (memory.characterId === id) continue;
+      if (!Array.isArray(memory.knownBy) || !memory.knownBy.includes(id)) continue;
+      memory.knownBy = memory.knownBy.filter((characterId) => characterId !== id);
+      await E.db.put("memories", memory);
+    }
     E.state.memories = E.state.memories.filter((memory) => memory.characterId !== id);
+    if (E.continuity && E.continuity.removeCharacterData) {
+      E.continuity.removeCharacterData(id);
+    } else {
+      const life = E.state.life = E.normalizeLifeState(E.state.life);
+      life.commitments = life.commitments.filter((item) => item.characterId !== id);
+      life.storylines = life.storylines.filter((item) => item.characterId !== id);
+      delete life.herPhone[id];
+      life.bonds = life.bonds.filter((item) => item.a !== id && item.b !== id);
+    }
+    for (const moment of E.state.moments) {
+      if (!Array.isArray(moment.comments)) continue;
+      const nextComments = moment.comments.filter((comment) => comment.characterId !== id);
+      if (nextComments.length === moment.comments.length) continue;
+      moment.comments = nextComments;
+      await E.db.put("moments", moment);
+    }
+    await E.saveLifeState();
     E.closeSheet();
     E.toast("角色已删除");
     E.navigate("#/contacts");
@@ -632,6 +781,73 @@
     memory.updatedAt = Date.now();
     await E.db.put("memories", memory);
     E.toast(memory.pinned ? "记忆已置顶" : "已取消置顶");
+    E.renderRoute();
+  };
+
+  function dateTimeLocalValue(timestamp) {
+    const date = new Date(Number(timestamp) || Date.now() + 24 * 60 * 60 * 1000);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  }
+
+  E.commitmentFormFlow = function (characterId, commitmentId) {
+    const character = E.getCharacter(characterId);
+    if (!character) return;
+    const existing = commitmentId
+      ? E.commitmentEngine.listFor(characterId).find((item) => item.id === commitmentId)
+      : null;
+    E.formSheet({
+      title: existing ? "编辑约定" : "添加约定",
+      fields: [
+        { name: "content", label: "约定内容", type: "textarea", required: true, value: existing ? existing.content : "", placeholder: "例如：周五晚上一起吃饭" },
+        { name: "dueAt", label: "什么时候", type: "datetime-local", value: dateTimeLocalValue(existing ? existing.dueAt : Date.now() + 24 * 60 * 60 * 1000), hint: "到时间前后，角色会自然地问起这件事。" },
+        { name: "visibility", label: "谁知道", type: "select", value: existing ? existing.visibility : "private", options: [
+          { value: "private", label: "只有她知道" },
+          { value: "group", label: "群聊里都知道" },
+          { value: "public", label: "所有角色可见" }
+        ] },
+        { name: "channel", label: "提醒方式", type: "select", value: existing ? existing.channel : "chat", options: [
+          { value: "chat", label: "在聊天里提起" },
+          { value: "notification", label: "留一条通知" }
+        ] }
+      ],
+      submitLabel: existing ? "保存" : "记下",
+      onSubmit: async (values) => {
+        const dueAt = new Date(values.dueAt).getTime() || Date.now() + 24 * 60 * 60 * 1000;
+        const knownBy = values.visibility === "public"
+          ? E.state.characters.map((item) => item.id)
+          : values.visibility === "group"
+            ? Array.from(new Set([characterId, ...E.state.chats.filter((chat) => chat.type === "group" && (chat.characterIds || []).includes(characterId)).flatMap((chat) => chat.characterIds || [])]))
+            : [characterId];
+        if (existing) {
+          existing.content = values.content.trim();
+          existing.dueAt = dueAt;
+          existing.visibility = values.visibility;
+          existing.channel = values.channel;
+          existing.knownBy = knownBy;
+          existing.updatedAt = Date.now();
+        } else {
+          E.commitmentEngine.add(characterId, {
+            content: values.content.trim(),
+            dueAt,
+            visibility: values.visibility,
+            channel: values.channel,
+            knownBy,
+            source: "manual"
+          });
+        }
+        await E.commitmentEngine.save();
+        E.toast(existing ? "约定已更新" : "约定已记下");
+        E.renderRoute();
+      }
+    });
+  };
+
+  E.resolveUnresolvedFlow = async function (characterId) {
+    const character = E.getCharacter(characterId);
+    if (!character) return;
+    if (!E.confirm("把这件事标记为已经聊开？张力会下降，时间线会留下记录。")) return;
+    await E.relationshipEngine.resolveUnresolved(characterId);
+    E.toast("关系已经松了一点");
     E.renderRoute();
   };
 

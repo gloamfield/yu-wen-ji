@@ -4,7 +4,7 @@
   const E = window.Ember = window.Ember || {};
 
   E.APP_NAME = "余温机";
-  E.VERSION = "0.8.0";
+  E.VERSION = "0.9.0";
   E.STORES = [
     "characters",
     "chats",
@@ -143,7 +143,13 @@
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
     speaker: '<path d="M11 5 6.5 9H3v6h3.5L11 19V5Z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a8 8 0 0 1 0 11"/>',
     phoneOff: '<path d="M7.2 3.8 9.7 4c.5.1.8.5.9 1l.7 3.1c.1.4 0 .8-.4 1.1l-1.6 1.2a14 14 0 0 0 5.3 5.3l1.2-1.6c.3-.4.7-.5 1.1-.4l3.1.7c.5.1.9.4 1 1l.2 2.5c.1 1.1-.8 2-1.9 2A16.2 16.2 0 0 1 4.8 5.7c0-1.1.9-2 2-1.9Z"/><path d="m3 3 18 18"/>',
-    camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4V8Z"/><circle cx="12" cy="13" r="3.2"/>'
+    camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4V8Z"/><circle cx="12" cy="13" r="3.2"/>',
+    device: '<rect x="7" y="2.5" width="10" height="19" rx="3"/><path d="M10 5h4M11 18.5h2"/>',
+    memo: '<path d="M5 4h14v16H5z"/><path d="M8 8h8M8 11.5h8M8 15h5"/>',
+    history: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    cart: '<path d="M3 4h2l2.2 10.5h10.9L21 7H6"/><circle cx="9" cy="19" r="1.4"/><circle cx="18" cy="19" r="1.4"/>',
+    wave: '<path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 12h-2"/>',
+    draft: '<path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h4M8 12h8M8 15.5h6"/>'
   };
 
   E.icon = function (name, size) {
@@ -482,6 +488,9 @@
       tags: Array.isArray(c.tags) ? c.tags : [],
       worldbook: Array.isArray(c.worldbook) ? c.worldbook : [],
       proactiveMode,
+      relationshipState: typeof E.normalizeRelationshipState === "function"
+        ? E.normalizeRelationshipState(c.relationshipState)
+        : (c.relationshipState && typeof c.relationshipState === "object" ? c.relationshipState : null),
       createdAt: Number(c.createdAt) || Date.now()
     };
   };

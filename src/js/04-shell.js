@@ -14,6 +14,7 @@
     { id: "wallet", label: "钱包", icon: "wallet", route: "#/wallet", color: "linear-gradient(135deg,#5e9a88,#3f7c70)" },
     { id: "music", label: "音乐", icon: "music", route: "#/music", color: "linear-gradient(135deg,#c86b83,#8f5d9e)" },
     { id: "forum", label: "论坛", icon: "forum", route: "#/forum", color: "linear-gradient(135deg,#6d8fb8,#536b9a)" },
+    { id: "herphone", label: "她的手机", icon: "device", route: "#/her-phone", color: "linear-gradient(135deg,#b57b8d,#7d5d83)" },
     { id: "memory", label: "记忆", icon: "memory", route: "#/memory", color: "linear-gradient(135deg,#9b8cb8,#6f668f)" },
     { id: "settings", label: "设置", icon: "settings", route: "#/settings", color: "linear-gradient(135deg,#8d8588,#5f595c)" }
   ];
@@ -291,6 +292,9 @@
         break;
       case "forum":
         html = route.args[0] ? E.renderForumThreadHTML(route.args[0]) : E.renderForumHTML();
+        break;
+      case "her-phone":
+        html = E.renderHerPhoneHTML(route.args[0]);
         break;
       case "memory":
         html = E.renderMemoryLibraryHTML();
